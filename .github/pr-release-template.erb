@@ -1,0 +1,7 @@
+Release <%= Time.now %>
+## Items to be Released
+
+<% pull_requests.each do |pr| -%>
+<%- next if pr.user.login == "kiva-bot[bot]" -%>
+<%= pr.to_checklist_item %>
+<% end -%>

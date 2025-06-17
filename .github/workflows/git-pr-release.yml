@@ -1,0 +1,44 @@
+name: Git PR Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  main:
+    name: git-pr-release
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_BRANCH: |-
+        ${{ fromJSON('{
+          "main": "release"
+        }')[github.ref_name] }}
+      RELEASE_LABEL: |-
+        ${{ fromJSON('{
+          "main": "release"
+        }')[github.ref_name] }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.KIVA_BOT_APP_ID }}
+          private-key: ${{ secrets.KIVA_BOT_APP_PRIVATE_KEY }}
+
+      - name: git-pr-release
+        uses: bakunyo/git-pr-release-action@master
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GIT_PR_RELEASE_BRANCH_PRODUCTION: ${{ env.RELEASE_BRANCH }}
+          GIT_PR_RELEASE_BRANCH_STAGING: ${{ github.ref_name }}
+          GIT_PR_RELEASE_TEMPLATE: ".github/pr-release-template.erb"
+          GIT_PR_RELEASE_LABELS: ${{ env.RELEASE_LABEL }}
+          TZ: Asia/Tokyo

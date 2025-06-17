@@ -1,0 +1,59 @@
+# Dependencies
+/node_modules
+
+# Source files (TypeScript)
+/src
+tsconfig.json
+
+# Development and build configuration
+biome.json
+.editorconfig
+.tool-versions
+
+# Git files
+.git
+.gitignore
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Development files
+.github/
+release.config.js
+
+# Temporary files
+*.tmp
+*.temp

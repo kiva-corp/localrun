@@ -1,0 +1,90 @@
+{
+  "name": "localrundebugmode2",
+  "description": "expose yourself to the world with localrun",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "keywords": [
+    "tunnel",
+    "publish",
+    "localhost",
+    "local",
+    "development",
+    "proxy"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kiva-corp/localrun.git"
+  },
+  "homepage": "https://github.com/kiva-corp/localrun#readme",
+  "bugs": {
+    "url": "https://github.com/kiva-corp/localrun/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/kiva-corp"
+  },
+  "author": "uchidash <uchidash456@gmail.com>",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "lr": "dist/bin/lr.js"
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "postbuild": "chmod +x dist/bin/lr.js",
+    "start": "node dist/bin/lr.js",
+    "debug": "DEBUG=localrun:* node dist/bin/lr.js",
+    "release": "semantic-release",
+    "release:dry-run": "semantic-release --dry-run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check ./src",
+    "format": "biome check --fix ./src",
+    "test": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS='--loader ts-node/esm --experimental-specifier-resolution=node' mocha",
+    "test:watch": "npm run test -- --watch"
+  },
+  "dependencies": {
+    "axios": "^1.10.0",
+    "debug": "^4.4.1",
+    "openurl": "^1.1.1",
+    "ws": "^8.18.2",
+    "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1",
+    "@types/chai": "^5.2.2",
+    "@types/debug": "^4.1.12",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.0.3",
+    "@types/openurl": "^1.0.3",
+    "@types/ws": "^8.18.1",
+    "@types/yargs": "^17.0.33",
+    "chai": "^5.2.0",
+    "conventional-changelog-conventionalcommits": "^9.0.0",
+    "mocha": "^11.6.0",
+    "semantic-release": "^24.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
