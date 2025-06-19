@@ -1,6 +1,6 @@
 {
   "name": "localrundebugmode2",
-  "description": "expose yourself to the world with localrun",
+  "description": "expose yourself to the world with localrun.",
   "version": "0.0.0",
   "type": "module",
   "license": "Apache-2.0",
