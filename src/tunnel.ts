@@ -591,7 +591,7 @@ export class Tunnel extends EventEmitter {
       // 適応的タイムアウト設定
       let timeout = baseTimeout
       if (isSSERequest) {
-        timeout = 300000 // SSE接続は5分
+        timeout = 900000 // SSE接続は15分
       } else if (request.path.includes('/api/') && request.method === 'GET') {
         timeout = Math.min(baseTimeout, 10000) // GET API系は短め（10秒）
       } else if (request.path.includes('/upload') || request.method === 'POST' || request.method === 'PUT') {
