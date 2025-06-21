@@ -66,14 +66,14 @@ export class Tunnel extends EventEmitter {
           }
 
           // 少し待ってからWebSocket接続を開始
-          log('Starting WebSocket connection in 100ms...')
+          log('Starting WebSocket connection in 10ms...')
           setTimeout(() => {
             // Double check if closed during the timeout
             if (!this.closed) {
               this.connectWebSocket()
             }
             resolve(info)
-          }, 100)
+          }, 10)
         })
         .catch((error) => {
           log('❌ Failed to initialize tunnel: %o', error)
