@@ -1,7 +1,5 @@
 # localrun
 
-> **⚠️ Warning: This is currently in experimental state**
-
 This project is based on [localtunnel](https://github.com/localtunnel/localtunnel) and has been adapted to work with Cloudflare Workers and WebSocket proxy servers.
 
 localrun exposes your localhost to the world for easy testing and sharing! No need to mess with DNS or deploy just to have others test out your changes.
@@ -11,7 +9,14 @@ Great for working with browser testing tools, webhook testing, or external API c
 ## Quickstart
 
 ```bash
-npx localrun --port 8000
+npx @kiva-corp/localrun --port 8000
+```
+
+Then start your local server on port 8000 (or whatever port you specified). The command will connect to the localrun tunnel server and provide you with a public URL that you can use to access your local server from anywhere.
+
+```bash
+🌐 Public URL: https://example123.localrun.stream
+🏠 Local URL:  http://localhost:8000
 ```
 
 ## Installation
@@ -19,15 +24,15 @@ npx localrun --port 8000
 ### Globally
 
 ```bash
-npm install -g localrun
+npm install -g @kiva-corp/localrun
 ```
 
 ### As a dependency in your project
 
 ```bash
-npm install localrun
+npm install @kiva-corp/localrun
 # or
-yarn add localrun
+yarn add @kiva-corp/localrun
 ```
 
 ## CLI Usage
@@ -215,4 +220,4 @@ DEBUG=localrun:* lr --port 3000
 
 ## License
 
-MIT License. See `LICENSE` for details.
+Apache License 2.0. See `LICENSE` for details.
