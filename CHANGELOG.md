@@ -1,3 +1,9 @@
+## [1.0.2](https://github.com/kiva-corp/localrun/compare/v1.0.1...v1.0.2) (2025-06-21)
+
+### Performance Improvements
+
+* change sleep time ([331f543](https://github.com/kiva-corp/localrun/commit/331f543982a4ab8384b1f03dccf535b20bf2e3ee))
+
 ## [1.0.1](https://github.com/kiva-corp/localrun/compare/v1.0.0...v1.0.1) (2025-06-21)
 
 ### Bug Fixes
