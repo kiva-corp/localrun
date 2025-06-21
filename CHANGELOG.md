@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/kiva-corp/localrun/compare/v1.0.0...v1.0.1) (2025-06-21)
+
+### Bug Fixes
+
+* config ([34d0daf](https://github.com/kiva-corp/localrun/commit/34d0daf32c760afb6137007eb60e53e3c90c5178))
+* config ([#4](https://github.com/kiva-corp/localrun/issues/4)) ([e28a19f](https://github.com/kiva-corp/localrun/commit/e28a19f5abd1643bff7733060fccd3f6af99cfe7))
+
 ## 1.0.0 (2025-06-21)
 
 ### Features
