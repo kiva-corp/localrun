@@ -1,5 +1,5 @@
 {
-  "name": "localrundebugmode2",
+  "name": "@kiva-corp/localrun",
   "description": "expose yourself to the world with localrun",
   "version": "0.0.0",
   "type": "module",
