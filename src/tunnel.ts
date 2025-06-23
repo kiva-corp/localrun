@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as https from 'node:https'
+import * as zlib from 'node:zlib'
 import axios, { type AxiosResponse } from 'axios'
 import debug from 'debug'
 import WebSocket from 'ws'
@@ -242,9 +243,7 @@ export class Tunnel extends EventEmitter {
         const delay = Math.min(backoffDelay, this.maxReconnectDelay)
 
         log(
-          `Attempting to reconnect in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${
-            this.maxReconnectAttempts
-          })`,
+          `Attempting to reconnect in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
         )
 
         this.reconnectTimeout = setTimeout(() => {
@@ -685,8 +684,11 @@ export class Tunnel extends EventEmitter {
           // Combine all chunks into a single buffer
           const bodyBuffer = Buffer.concat(chunks)
 
-          // Check if this is binary content based on content type
+          // Check if this is binary content or compressed content
           const contentType = responseHeaders['content-type'] || ''
+          const contentEncoding = responseHeaders['content-encoding'] || ''
+          const contentLength = bodyBuffer.length
+
           const isBinary =
             contentType.startsWith('image/') ||
             contentType.startsWith('video/') ||
@@ -694,17 +696,102 @@ export class Tunnel extends EventEmitter {
             contentType.includes('application/octet-stream') ||
             contentType.includes('application/pdf')
 
-          let body: string
+          // Check if content is compressed (gzip, deflate, br, zstd)
+          const isCompressed =
+            contentEncoding.includes('gzip') ||
+            contentEncoding.includes('deflate') ||
+            contentEncoding.includes('br') ||
+            contentEncoding.includes('compress') ||
+            contentEncoding.includes('zstd')
+
+          // HTML/JavaScript/CSSなどのテキストコンテンツの判定を追加
+          const isTextContent =
+            contentType.includes('text/') ||
+            contentType.includes('application/json') ||
+            contentType.includes('application/javascript') ||
+            contentType.includes('application/x-javascript') ||
+            contentType.includes('text/javascript') ||
+            contentType.includes('application/xml') ||
+            contentType.includes('application/xhtml+xml')
+
+          log(
+            'Response analysis for request %s: content-type=%s, content-encoding=%s, size=%d bytes, isBinary=%s, isCompressed=%s, isTextContent=%s',
+            request.id,
+            contentType,
+            contentEncoding,
+            contentLength,
+            isBinary,
+            isCompressed,
+            isTextContent,
+          )
+
+          let body: string = ''
           let isBase64 = false
 
           if (isBinary) {
-            // For binary content, encode as base64
+            // For binary content only, encode as base64
             body = bodyBuffer.toString('base64')
             isBase64 = true
             log('Encoded binary response as base64 for request %s', request.id)
+            log('Content-Type: %s, Content-Encoding: %s', contentType, contentEncoding)
+            log('Original body size: %d bytes, Base64 size: %d bytes', bodyBuffer.length, body.length)
+          } else if (isCompressed && isTextContent) {
+            // For compressed text content (HTML, JS, CSS), decompress and send as text
+            // This allows Cloudflare Workers to handle compression appropriately
+            try {
+              let decompressedBuffer: Buffer
+
+              if (contentEncoding.includes('gzip')) {
+                decompressedBuffer = zlib.gunzipSync(bodyBuffer)
+                log('Decompressed gzip content for request %s', request.id)
+              } else if (contentEncoding.includes('br')) {
+                decompressedBuffer = zlib.brotliDecompressSync(bodyBuffer)
+                log('Decompressed brotli content for request %s', request.id)
+              } else if (contentEncoding.includes('deflate')) {
+                decompressedBuffer = zlib.inflateSync(bodyBuffer)
+                log('Decompressed deflate content for request %s', request.id)
+              } else {
+                // Unknown compression, send as base64
+                log('Unknown compression format %s, sending compressed data as base64', contentEncoding)
+                body = bodyBuffer.toString('base64')
+                isBase64 = true
+                decompressedBuffer = bodyBuffer // Set to avoid undefined access
+              }
+
+              if (!isBase64) {
+                body = decompressedBuffer.toString('utf8')
+                log('Decompressed and converted to UTF-8 for request %s', request.id)
+                log(
+                  'Original compressed size: %d bytes, decompressed size: %d bytes',
+                  bodyBuffer.length,
+                  decompressedBuffer.length,
+                )
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              log('Failed to decompress content for request %s, sending as base64: %s', request.id, errorMessage)
+              body = bodyBuffer.toString('base64')
+              isBase64 = true
+            }
+          } else if (isCompressed && !isTextContent) {
+            // For compressed non-text content, encode as base64
+            body = bodyBuffer.toString('base64')
+            isBase64 = true
+            log('Encoded compressed non-text content as base64 for request %s', request.id)
+            log('Content-Type: %s, Content-Encoding: %s', contentType, contentEncoding)
+            log('Original body size: %d bytes, Base64 size: %d bytes', bodyBuffer.length, body.length)
           } else {
-            // For text content, use UTF-8
+            // For uncompressed text content, use UTF-8
             body = bodyBuffer.toString('utf8')
+            log('Using UTF-8 encoding for uncompressed text content for request %s', request.id)
+          }
+
+          // HTMLテキストコンテンツの場合、Content-Encodingヘッダーを削除
+          if (isCompressed && isTextContent && !isBase64) {
+            // 圧縮解除したテキストコンテンツの場合、Content-Encodingヘッダーを削除
+            delete responseHeaders['content-encoding']
+            delete responseHeaders['content-length'] // サイズが変わったため
+            log('Removed content-encoding header after decompression for request %s', request.id)
           }
 
           const response = {
@@ -716,10 +803,11 @@ export class Tunnel extends EventEmitter {
           }
 
           log(
-            'Local server response for request %s ready: status %d, binary: %s, headers: %o',
+            'Local server response for request %s ready: status %d, binary: %s, compressed: %s, headers: %o',
             request.id,
             response.status,
             isBinary,
+            isCompressed,
             responseHeaders,
           )
           resolve(response)
