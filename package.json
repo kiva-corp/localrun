@@ -1,7 +1,7 @@
 {
   "name": "@kiva-corp/localrun",
   "description": "expose yourself to the world with localrun",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "license": "Apache-2.0",
   "keywords": [

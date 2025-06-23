@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/kiva-corp/localrun/compare/v1.0.2...v1.0.3) (2025-06-23)
+
+### Bug Fixes
+
+* character corruption ([06136f7](https://github.com/kiva-corp/localrun/commit/06136f75a54f6205c0f99549e2e2029764094ccc))
+* character corruption ([#8](https://github.com/kiva-corp/localrun/issues/8)) ([1ade2a8](https://github.com/kiva-corp/localrun/commit/1ade2a8c483c2cc860144983f36015ea58086a71))
+
 ## [1.0.2](https://github.com/kiva-corp/localrun/compare/v1.0.1...v1.0.2) (2025-06-21)
 
 ### Performance Improvements
