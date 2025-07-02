@@ -1,3 +1,10 @@
+## [1.0.4](https://github.com/kiva-corp/localrun/compare/v1.0.3...v1.0.4) (2025-07-02)
+
+### Performance Improvements
+
+* timeout ([b778379](https://github.com/kiva-corp/localrun/commit/b7783792026a0c6fd30817deb0a08961bfb0cd90))
+* timeout ([#10](https://github.com/kiva-corp/localrun/issues/10)) ([daa849f](https://github.com/kiva-corp/localrun/commit/daa849f0b03f2bc804c820b0ec331f44930de207))
+
 ## [1.0.3](https://github.com/kiva-corp/localrun/compare/v1.0.2...v1.0.3) (2025-06-23)
 
 ### Bug Fixes
