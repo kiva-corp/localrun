@@ -590,11 +590,11 @@ export class Tunnel extends EventEmitter {
       // 適応的タイムアウト設定
       let timeout = baseTimeout
       if (isSSERequest) {
-        timeout = 900000 // SSE接続は15分
+        timeout = 3600000 // SSE接続は1時間
       } else if (request.path.includes('/api/') && request.method === 'GET') {
-        timeout = Math.min(baseTimeout, 10000) // GET API系は短め（10秒）
+        timeout = Math.min(baseTimeout, 60000) // GET API系は短め（60秒）
       } else if (request.path.includes('/upload') || request.method === 'POST' || request.method === 'PUT') {
-        timeout = Math.min(baseTimeout * 2, 45000) // アップロード系は最大45秒
+        timeout = Math.min(baseTimeout * 2, 180000) // アップロード系は最大180秒
       } else if (retryCount > 0) {
         // リトライ時は段階的にタイムアウトを延長（指数バックオフ）
         timeout = Math.min(baseTimeout * 1.5 ** retryCount, 60000)
@@ -604,7 +604,7 @@ export class Tunnel extends EventEmitter {
       if (request.body && request.body.length > 50000) {
         // 50KB以上
         const sizeMultiplier = Math.min(1 + request.body.length / 500000, 2) // 最大2倍
-        timeout = Math.min(timeout * sizeMultiplier, 90000) // 最大90秒
+        timeout = Math.min(timeout * sizeMultiplier, 180000) // 最大180秒
       }
 
       const options: http.RequestOptions = {
