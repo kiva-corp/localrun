@@ -1024,7 +1024,6 @@ export class Tunnel extends EventEmitter {
           console.error('WebSocket close error:', error)
         }
       }
-      this.websocket = null
     }
 
     if (this.localServer) {
