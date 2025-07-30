@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/kiva-corp/localrun/compare/v1.0.4...v1.0.5) (2025-07-30)
+
+### Bug Fixes
+
+*  close websocket completely ([#12](https://github.com/kiva-corp/localrun/issues/12)) ([3cc9394](https://github.com/kiva-corp/localrun/commit/3cc9394983663287917f305adad6d7885d14f53e))
+* close websocket ([32a5848](https://github.com/kiva-corp/localrun/commit/32a584852c21012107a7237129b4374c553fe265))
+
 ## [1.0.4](https://github.com/kiva-corp/localrun/compare/v1.0.3...v1.0.4) (2025-07-02)
 
 ### Performance Improvements
