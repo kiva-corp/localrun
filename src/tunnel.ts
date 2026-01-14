@@ -1436,6 +1436,7 @@ export class Tunnel extends EventEmitter {
     }
   }
 
+  // トンネルの統計情報を取得
   getStats() {
     return {
       isConnected: this.websocket?.readyState === WebSocket.OPEN,
