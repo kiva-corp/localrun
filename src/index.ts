@@ -1,8 +1,9 @@
+import { LocalPortConnectionError, type LocalPortErrorCode, type LocalPortValidationResult } from './error.js'
 import { Tunnel } from './tunnel.js'
 import type { TunnelInfo, TunnelOptions } from './types.js'
 
-export { Tunnel }
-export type { TunnelInfo, TunnelOptions }
+export { Tunnel, LocalPortConnectionError }
+export type { TunnelInfo, TunnelOptions, LocalPortErrorCode, LocalPortValidationResult }
 
 /**
  * Create a localrun connection

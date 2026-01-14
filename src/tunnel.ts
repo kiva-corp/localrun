@@ -2,11 +2,13 @@ import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as https from 'node:https'
+import * as net from 'node:net'
 import * as zlib from 'node:zlib'
 import axios, { type AxiosResponse } from 'axios'
 import debug from 'debug'
 import WebSocket from 'ws'
 import { messageChunker } from './chunk-utils.js'
+import { LocalPortConnectionError, type LocalPortErrorCode, type LocalPortValidationResult } from './error.js'
 import type { ChunkData, ProxyRequest, ProxyResponse, TunnelInfo, TunnelOptions, WebSocketMessage } from './types.js'
 
 const log = debug('localrun:client')
@@ -51,6 +53,14 @@ export class Tunnel extends EventEmitter {
   async open(): Promise<TunnelInfo> {
     log('=== Opening tunnel ===')
     log('Options: %o', this.options)
+
+    // Validate local port connectivity first
+    const validationResult = await this.validateLocalPort()
+    if (!validationResult.success) {
+      log('❌ Local port validation failed: %s', validationResult.errorMessage)
+      throw LocalPortConnectionError.fromResult(validationResult)
+    }
+    log('✅ Local port validation successful')
 
     return new Promise((resolve, reject) => {
       this.initTunnel()
@@ -355,28 +365,36 @@ export class Tunnel extends EventEmitter {
       let message = 'Internal Server Error'
       let errorType = 'unknown-error'
 
-      if (error instanceof Error) {
-        if (error.message.includes('timeout')) {
-          status = 504
-          message = 'Gateway Timeout - Local server did not respond in time'
-          errorType = 'timeout'
-        } else if (error.message.includes('ECONNREFUSED')) {
-          status = 502
-          message = 'Bad Gateway - Local server is not running or not accepting connections'
-          errorType = 'connection-refused'
-        } else if (error.message.includes('ENOTFOUND')) {
-          status = 502
-          message = 'Bad Gateway - Local server host not found'
-          errorType = 'host-not-found'
-        } else if (error.message.includes('ECONNRESET')) {
-          status = 502
-          message = 'Bad Gateway - Connection was reset by local server'
-          errorType = 'connection-reset'
-        } else if (error.message.includes('ENETUNREACH') || error.message.includes('EHOSTUNREACH')) {
-          status = 502
-          message = 'Bad Gateway - Local server network unreachable'
-          errorType = 'network-unreachable'
-        }
+      // Check both error message and code
+      const errorMessage = error instanceof Error ? error.message : ''
+      const errorCode = (error instanceof Error && 'code' in error ? error.code : '') || ''
+      const errorStr = `${errorMessage} ${errorCode}`.toLowerCase()
+
+      if (errorStr.includes('timeout') || errorCode === 'ETIMEDOUT') {
+        status = 504
+        message = 'Gateway Timeout - Local server did not respond in time'
+        errorType = 'timeout'
+      } else if (errorStr.includes('econnrefused') || errorCode === 'ECONNREFUSED') {
+        status = 502
+        message = 'Bad Gateway - Local server is not running or not accepting connections'
+        errorType = 'connection-refused'
+      } else if (errorStr.includes('enotfound') || errorCode === 'ENOTFOUND') {
+        status = 502
+        message = 'Bad Gateway - Local server host not found'
+        errorType = 'host-not-found'
+      } else if (errorStr.includes('econnreset') || errorCode === 'ECONNRESET') {
+        status = 502
+        message = 'Bad Gateway - Connection was reset by local server'
+        errorType = 'connection-reset'
+      } else if (
+        errorStr.includes('enetunreach') ||
+        errorStr.includes('ehostunreach') ||
+        errorCode === 'ENETUNREACH' ||
+        errorCode === 'EHOSTUNREACH'
+      ) {
+        status = 502
+        message = 'Bad Gateway - Local server network unreachable'
+        errorType = 'network-unreachable'
       }
 
       const errorResponse: ProxyResponse = {
@@ -396,6 +414,7 @@ export class Tunnel extends EventEmitter {
           details: error instanceof Error ? error.message : String(error),
         }),
       }
+
       log('Sending error response for request %s (status: %d, type: %s)', request.id, status, errorType)
       this.sendResponse(errorResponse)
     }
@@ -1291,8 +1310,133 @@ export class Tunnel extends EventEmitter {
   }
 
   /**
-   * トンネルの統計情報を取得
+   * TCP 接続をチェック
    */
+  private checkTcpConnection(hostname: string, port: number, timeout: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = new net.Socket()
+
+      socket.setTimeout(timeout)
+
+      socket.on('connect', () => {
+        log('✅ TCP connection successful')
+        socket.destroy()
+        resolve(true)
+      })
+
+      socket.on('timeout', () => {
+        log('❌ TCP connection timeout')
+        socket.destroy()
+        resolve(false)
+      })
+
+      socket.on('error', (error: Error) => {
+        log('❌ TCP connection error: %s', error.message)
+        socket.destroy()
+        resolve(false)
+      })
+
+      log('Attempting TCP connection to %s:%d...', hostname, port)
+      socket.connect(port, hostname)
+    })
+  }
+
+  /**
+   * ローカルポートの検証
+   * セキュリティブロック、サーバー未応答、その他のエラーを特定
+   */
+  private async validateLocalPort(): Promise<LocalPortValidationResult> {
+    const hostname = this.options.localHost || 'localhost'
+    const port = this.options.port
+    const protocol = this.options.localHttps ? https : http
+    const tcpTimeout = 2000
+    const httpTimeout = 5000
+
+    log('Validating local port: %s://%s:%d', this.options.localHttps ? 'https' : 'http', hostname, port)
+
+    // Step 1: Check TCP connection
+    log('Step 1: Checking TCP connection...')
+    const tcpConnected = await this.checkTcpConnection(hostname, port, tcpTimeout)
+
+    if (!tcpConnected) {
+      log('❌ TCP connection failed - possible firewall or security block')
+      return {
+        success: false,
+        errorCode: 'SECURITY_BLOCKED',
+        errorMessage: `TCP connection timeout. Port ${port} may be blocked by firewall or security software.`,
+        host: hostname,
+        port,
+      }
+    }
+
+    // Step 2: HTTP応答チェック
+    log('Step 2: Checking HTTP response...')
+    return new Promise((resolve) => {
+      const options: http.RequestOptions = {
+        hostname,
+        port,
+        path: '/',
+        method: 'HEAD',
+        timeout: httpTimeout,
+      }
+
+      if (this.options.localHttps && this.options.allowInvalidCert) {
+        ;(options as https.RequestOptions).rejectUnauthorized = false
+      }
+
+      const req = protocol.request(options, () => {
+        log('✅ Local port validation successful')
+        resolve({ success: true, host: hostname, port })
+      })
+
+      req.on('error', (error: NodeJS.ErrnoException) => {
+        log('❌ Local port validation failed: %s (%s)', error.message, error.code)
+        resolve({
+          success: false,
+          errorCode: this.mapErrorToCode(error),
+          errorMessage: error.message,
+          host: hostname,
+          port,
+        })
+      })
+
+      req.on('timeout', () => {
+        log('❌ HTTP response timeout - server not responding')
+        req.destroy()
+        resolve({
+          success: false,
+          errorCode: 'SERVER_NOT_RESPONDING',
+          errorMessage: `HTTP response timeout after ${httpTimeout}ms. Server is running but not responding to requests.`,
+          host: hostname,
+          port,
+        })
+      })
+
+      req.end()
+    })
+  }
+
+  private mapErrorToCode(error: NodeJS.ErrnoException): LocalPortErrorCode {
+    switch (error.code) {
+      case 'ECONNREFUSED':
+        return 'ECONNREFUSED'
+      case 'ETIMEDOUT':
+        return 'ETIMEDOUT'
+      case 'EACCES':
+        return 'EACCES'
+      case 'EPERM':
+        return 'EPERM'
+      case 'ENOTFOUND':
+        return 'ENOTFOUND'
+      case 'ENETUNREACH':
+      case 'EHOSTUNREACH':
+        return 'ENETUNREACH'
+      default:
+        return 'UNKNOWN'
+    }
+  }
+
+  // トンネルの統計情報を取得
   getStats() {
     return {
       isConnected: this.websocket?.readyState === WebSocket.OPEN,
