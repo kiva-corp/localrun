@@ -1,3 +1,10 @@
+## [1.1.0](https://github.com/kiva-corp/localrun/compare/v1.0.5...v1.1.0) (2026-01-14)
+
+### Features
+
+* categorize connection errors when init tunnel ([54743b4](https://github.com/kiva-corp/localrun/commit/54743b4708f60a828cb9485fb6488331eb0c9925))
+* Categorize connection errors with dedicated error module ([#14](https://github.com/kiva-corp/localrun/issues/14)) ([4010206](https://github.com/kiva-corp/localrun/commit/4010206513358f9b02ead90f4e32e318ab5b39ce))
+
 ## [1.0.5](https://github.com/kiva-corp/localrun/compare/v1.0.4...v1.0.5) (2025-07-30)
 
 ### Bug Fixes
