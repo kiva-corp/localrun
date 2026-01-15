@@ -28,17 +28,17 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .tool-versions
           cache: "npm"
           cache-dependency-path: package-lock.json
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
 
       - name: Install Dependencies
         run: npm install
 
       - name: Release Dry Run
         run: npm run release:dry-run
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.KIVA_DEV_NPM_TOKEN }}
