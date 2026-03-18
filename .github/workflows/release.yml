@@ -9,6 +9,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  id-token: write
 
 jobs:
   main:
@@ -20,11 +21,14 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .tool-versions
           cache: "npm"
           cache-dependency-path: package-lock.json
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
 
       - name: Install Dependencies
         run: npm install
@@ -33,4 +37,3 @@ jobs:
         run: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.KIVA_DEV_NPM_TOKEN }}
