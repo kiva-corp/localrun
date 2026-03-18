@@ -1,3 +1,17 @@
+## [1.1.1](https://github.com/kiva-corp/localrun/compare/v1.1.0...v1.1.1) (2026-03-18)
+
+### Bug Fixes
+
+* sse condition ([828f4c6](https://github.com/kiva-corp/localrun/commit/828f4c60cd3ba311fdb3374a42feddd1909e972c))
+* update SSE detection for Streamable HTTP transport ([#18](https://github.com/kiva-corp/localrun/issues/18)) ([ee073fd](https://github.com/kiva-corp/localrun/commit/ee073fdd969d67a35ff4fff4fc4b5deddb260849))
+
+### Performance Improvements
+
+* update library ([ab4eb4c](https://github.com/kiva-corp/localrun/commit/ab4eb4c48920b81c8e2cb23708b8c1bdaee9bd31))
+* update library ([#22](https://github.com/kiva-corp/localrun/issues/22)) ([64724b1](https://github.com/kiva-corp/localrun/commit/64724b1f9ba2f569b1b3a4a5c9efbed4995d552f))
+* use node24 ([0d6b177](https://github.com/kiva-corp/localrun/commit/0d6b177c2c01467913b83dc3cd88c9d78ecde7dc))
+* use node24 ([#20](https://github.com/kiva-corp/localrun/issues/20)) ([37ae2d0](https://github.com/kiva-corp/localrun/commit/37ae2d00ec80bc8eaed98403baef9686d1f09ba1))
+
 ## [1.1.0](https://github.com/kiva-corp/localrun/compare/v1.0.5...v1.1.0) (2026-01-14)
 
 ### Features
