@@ -320,11 +320,12 @@ export class Tunnel extends EventEmitter {
       return
     }
 
-    // SSE接続かどうかをチェック
-    const isSSERequest =
+    // SSE接続かどうかをチェック（POST リクエストは SSE パスを使わない）
+    const isSSERequest = request.method === 'GET' && (
       request.headers.accept?.includes('text/event-stream') ||
       request.path.includes('/sse') ||
       request.headers['cache-control'] === 'no-cache'
+    )
 
     // Emit request event for logging
     this.emit('request', {
@@ -600,11 +601,12 @@ export class Tunnel extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      // SSE接続かどうかをチェック
-      const isSSERequest =
+      // SSE接続かどうかをチェック（POST リクエストは SSE パスを使わない）
+      const isSSERequest = request.method === 'GET' && (
         request.headers.accept?.includes('text/event-stream') ||
         request.path.includes('/sse') ||
         request.headers['cache-control'] === 'no-cache'
+      )
 
       // 適応的タイムアウト設定
       let timeout = baseTimeout
