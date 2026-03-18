@@ -1,3 +1,58 @@
+## [1.1.1](https://github.com/kiva-corp/localrun/compare/v1.1.0...v1.1.1) (2026-03-18)
+
+### Bug Fixes
+
+* sse condition ([828f4c6](https://github.com/kiva-corp/localrun/commit/828f4c60cd3ba311fdb3374a42feddd1909e972c))
+* update SSE detection for Streamable HTTP transport ([#18](https://github.com/kiva-corp/localrun/issues/18)) ([ee073fd](https://github.com/kiva-corp/localrun/commit/ee073fdd969d67a35ff4fff4fc4b5deddb260849))
+
+### Performance Improvements
+
+* update library ([ab4eb4c](https://github.com/kiva-corp/localrun/commit/ab4eb4c48920b81c8e2cb23708b8c1bdaee9bd31))
+* update library ([#22](https://github.com/kiva-corp/localrun/issues/22)) ([64724b1](https://github.com/kiva-corp/localrun/commit/64724b1f9ba2f569b1b3a4a5c9efbed4995d552f))
+* use node24 ([0d6b177](https://github.com/kiva-corp/localrun/commit/0d6b177c2c01467913b83dc3cd88c9d78ecde7dc))
+* use node24 ([#20](https://github.com/kiva-corp/localrun/issues/20)) ([37ae2d0](https://github.com/kiva-corp/localrun/commit/37ae2d00ec80bc8eaed98403baef9686d1f09ba1))
+
+## [1.1.0](https://github.com/kiva-corp/localrun/compare/v1.0.5...v1.1.0) (2026-01-14)
+
+### Features
+
+* categorize connection errors when init tunnel ([54743b4](https://github.com/kiva-corp/localrun/commit/54743b4708f60a828cb9485fb6488331eb0c9925))
+* Categorize connection errors with dedicated error module ([#14](https://github.com/kiva-corp/localrun/issues/14)) ([4010206](https://github.com/kiva-corp/localrun/commit/4010206513358f9b02ead90f4e32e318ab5b39ce))
+
+## [1.0.5](https://github.com/kiva-corp/localrun/compare/v1.0.4...v1.0.5) (2025-07-30)
+
+### Bug Fixes
+
+*  close websocket completely ([#12](https://github.com/kiva-corp/localrun/issues/12)) ([3cc9394](https://github.com/kiva-corp/localrun/commit/3cc9394983663287917f305adad6d7885d14f53e))
+* close websocket ([32a5848](https://github.com/kiva-corp/localrun/commit/32a584852c21012107a7237129b4374c553fe265))
+
+## [1.0.4](https://github.com/kiva-corp/localrun/compare/v1.0.3...v1.0.4) (2025-07-02)
+
+### Performance Improvements
+
+* timeout ([b778379](https://github.com/kiva-corp/localrun/commit/b7783792026a0c6fd30817deb0a08961bfb0cd90))
+* timeout ([#10](https://github.com/kiva-corp/localrun/issues/10)) ([daa849f](https://github.com/kiva-corp/localrun/commit/daa849f0b03f2bc804c820b0ec331f44930de207))
+
+## [1.0.3](https://github.com/kiva-corp/localrun/compare/v1.0.2...v1.0.3) (2025-06-23)
+
+### Bug Fixes
+
+* character corruption ([06136f7](https://github.com/kiva-corp/localrun/commit/06136f75a54f6205c0f99549e2e2029764094ccc))
+* character corruption ([#8](https://github.com/kiva-corp/localrun/issues/8)) ([1ade2a8](https://github.com/kiva-corp/localrun/commit/1ade2a8c483c2cc860144983f36015ea58086a71))
+
+## [1.0.2](https://github.com/kiva-corp/localrun/compare/v1.0.1...v1.0.2) (2025-06-21)
+
+### Performance Improvements
+
+* change sleep time ([331f543](https://github.com/kiva-corp/localrun/commit/331f543982a4ab8384b1f03dccf535b20bf2e3ee))
+
+## [1.0.1](https://github.com/kiva-corp/localrun/compare/v1.0.0...v1.0.1) (2025-06-21)
+
+### Bug Fixes
+
+* config ([34d0daf](https://github.com/kiva-corp/localrun/commit/34d0daf32c760afb6137007eb60e53e3c90c5178))
+* config ([#4](https://github.com/kiva-corp/localrun/issues/4)) ([e28a19f](https://github.com/kiva-corp/localrun/commit/e28a19f5abd1643bff7733060fccd3f6af99cfe7))
+
 ## 1.0.0 (2025-06-21)
 
 ### Features
