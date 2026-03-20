@@ -47,6 +47,8 @@
     "postbuild": "chmod +x dist/bin/lr.js",
     "start": "node dist/bin/lr.js",
     "debug": "DEBUG=localrun:* node dist/bin/lr.js",
+    "test:local:e2e": "node scripts/local-e2e-smoke.mjs",
+    "test:local:e2e:content": "node scripts/local-e2e-content-smoke.mjs",
     "release": "semantic-release",
     "release:dry-run": "semantic-release --dry-run",
     "typecheck": "tsc --noEmit",

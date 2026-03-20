@@ -10,6 +10,8 @@ export interface TunnelOptions {
   allowInvalidCert?: boolean
   timeout?: number
   maxRetries?: number
+  maxReconnectAttempts?: number
+  sseTimeout?: number
 }
 
 export interface TunnelInfo {
@@ -25,13 +27,16 @@ export interface ProxyRequest {
   path: string
   headers: Record<string, string>
   body?: string
+  bodyBinary?: string
+  isBinaryRequest?: boolean
 }
 
 export interface ProxyResponse {
   id: string
   status: number
   headers: Record<string, string>
-  body: string
+  body?: string
+  bodyBinary?: string
   isBase64?: boolean
 }
 

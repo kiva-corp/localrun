@@ -13,6 +13,42 @@ import type { ChunkData, ProxyRequest, ProxyResponse, TunnelInfo, TunnelOptions,
 
 const log = debug('localrun:client')
 
+const isTextContentType = (contentType: string): boolean => {
+  const normalized = contentType.toLowerCase()
+  return (
+    normalized === '' ||
+    normalized.startsWith('text/') ||
+    normalized.includes('application/json') ||
+    normalized.includes('application/javascript') ||
+    normalized.includes('application/x-javascript') ||
+    normalized.includes('text/javascript') ||
+    normalized.includes('application/xml') ||
+    normalized.includes('application/xhtml+xml') ||
+    normalized.includes('application/x-www-form-urlencoded') ||
+    normalized.includes('application/graphql')
+  )
+}
+
+const calculateRequestBodySize = (request: ProxyRequest): number => {
+  if (request.bodyBinary) {
+    return Buffer.byteLength(request.bodyBinary, 'base64')
+  }
+
+  if (request.body) {
+    return Buffer.byteLength(request.body)
+  }
+
+  return 0
+}
+
+const isStreamingRequest = (request: ProxyRequest): boolean => {
+  // SSE接続かどうかをチェック（POST リクエストは SSE パスを使わない）
+  const acceptHeader = request.headers.accept?.toLowerCase() || ''
+  const hasEventStreamAccept = acceptHeader.includes('text/event-stream')
+  const isLegacySseRequest = request.method === 'GET' && (hasEventStreamAccept || request.path.includes('/sse'))
+  return isLegacySseRequest
+}
+
 export class Tunnel extends EventEmitter {
   private options: TunnelOptions
   private tunnelInfo: TunnelInfo | null = null
@@ -40,6 +76,21 @@ export class Tunnel extends EventEmitter {
     healthPath: null,
   }
   private healthCheckCacheTTL = 10000 // 10秒間キャッシュ
+  private pendingProxyRequests = 0
+  private activeSseRequests = new Set<string>()
+  private reconnectScheduledCount = 0
+  private reconnectSuccessfulCount = 0
+  private websocketConnectedCount = 0
+  private websocketDisconnectedCount = 0
+  private peakWebSocketBufferedAmount = 0
+  private proxyMetrics = {
+    totalRequests: 0,
+    totalResponses: 0,
+    totalErrors: 0,
+    timeoutErrors: 0,
+    connectionErrors: 0,
+    pendingHighWatermark: 0,
+  }
 
   constructor(options: TunnelOptions) {
     super()
@@ -48,6 +99,7 @@ export class Tunnel extends EventEmitter {
       localHost: 'localhost',
       ...options,
     }
+    this.maxReconnectAttempts = this.options.maxReconnectAttempts ?? 10
   }
 
   async open(): Promise<TunnelInfo> {
@@ -174,6 +226,10 @@ export class Tunnel extends EventEmitter {
       log('✅ WebSocket connected successfully')
       log('WebSocket readyState: %d', this.websocket?.readyState)
       this.reconnectAttempts = 0 // Reset on successful connection
+      this.websocketConnectedCount++
+      if (this.reconnectScheduledCount > 0) {
+        this.reconnectSuccessfulCount++
+      }
 
       if (this.tunnelInfo) {
         this.emit('url', this.tunnelInfo.url)
@@ -185,10 +241,10 @@ export class Tunnel extends EventEmitter {
         this.reconnectTimeout = null
       }
 
-      // キープアライブを開始（30秒間隔）
+      // キープアライブを開始（25秒間隔）
       this.keepAliveInterval = setInterval(() => {
         this.sendPing()
-      }, 30000)
+      }, 25000)
     })
 
     this.websocket.on('message', (data: WebSocket.Data) => {
@@ -237,6 +293,7 @@ export class Tunnel extends EventEmitter {
       log('Reconnect attempts: %d/%d', this.reconnectAttempts, this.maxReconnectAttempts)
 
       this.websocket = null
+      this.websocketDisconnectedCount++
 
       // キープアライブをクリア
       if (this.keepAliveInterval) {
@@ -246,6 +303,7 @@ export class Tunnel extends EventEmitter {
 
       if (!this.closed && this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++
+        this.reconnectScheduledCount++
 
         // 指数バックオフで再接続遅延を計算
         const baseDelay = 1000 + Math.random() * 1000 // 1-2秒のベース遅延
@@ -296,6 +354,9 @@ export class Tunnel extends EventEmitter {
     log('Method: %s', request.method)
     log('Path: %s', request.path)
     log('Headers: %o', request.headers)
+    this.proxyMetrics.totalRequests++
+    this.pendingProxyRequests++
+    this.proxyMetrics.pendingHighWatermark = Math.max(this.proxyMetrics.pendingHighWatermark, this.pendingProxyRequests)
 
     // サーキットブレーカーのチェック
     if (this.isCircuitBreakerOpen()) {
@@ -316,16 +377,13 @@ export class Tunnel extends EventEmitter {
           timestamp: new Date().toISOString(),
         }),
       }
+      this.proxyMetrics.totalErrors++
       this.sendResponse(errorResponse)
+      this.pendingProxyRequests = Math.max(0, this.pendingProxyRequests - 1)
       return
     }
 
-    // SSE接続かどうかをチェック（POST リクエストは SSE パスを使わない）
-    const isSSERequest = request.method === 'GET' && (
-      request.headers.accept?.includes('text/event-stream') ||
-      request.path.includes('/sse') ||
-      request.headers['cache-control'] === 'no-cache'
-    )
+    const isSSERequest = isStreamingRequest(request)
 
     // Emit request event for logging
     this.emit('request', {
@@ -344,6 +402,7 @@ export class Tunnel extends EventEmitter {
       } else {
         const response = await this.forwardToLocalServer(request)
         log('Received response from local server for request %s: status %d', request.id, response.status)
+        this.proxyMetrics.totalResponses++
         this.recordSuccess() // リクエスト成功
         this.sendResponse(response)
       }
@@ -375,18 +434,22 @@ export class Tunnel extends EventEmitter {
         status = 504
         message = 'Gateway Timeout - Local server did not respond in time'
         errorType = 'timeout'
+        this.proxyMetrics.timeoutErrors++
       } else if (errorStr.includes('econnrefused') || errorCode === 'ECONNREFUSED') {
         status = 502
         message = 'Bad Gateway - Local server is not running or not accepting connections'
         errorType = 'connection-refused'
+        this.proxyMetrics.connectionErrors++
       } else if (errorStr.includes('enotfound') || errorCode === 'ENOTFOUND') {
         status = 502
         message = 'Bad Gateway - Local server host not found'
         errorType = 'host-not-found'
+        this.proxyMetrics.connectionErrors++
       } else if (errorStr.includes('econnreset') || errorCode === 'ECONNRESET') {
         status = 502
         message = 'Bad Gateway - Connection was reset by local server'
         errorType = 'connection-reset'
+        this.proxyMetrics.connectionErrors++
       } else if (
         errorStr.includes('enetunreach') ||
         errorStr.includes('ehostunreach') ||
@@ -396,6 +459,7 @@ export class Tunnel extends EventEmitter {
         status = 502
         message = 'Bad Gateway - Local server network unreachable'
         errorType = 'network-unreachable'
+        this.proxyMetrics.connectionErrors++
       }
 
       const errorResponse: ProxyResponse = {
@@ -418,6 +482,8 @@ export class Tunnel extends EventEmitter {
 
       log('Sending error response for request %s (status: %d, type: %s)', request.id, status, errorType)
       this.sendResponse(errorResponse)
+    } finally {
+      this.pendingProxyRequests = Math.max(0, this.pendingProxyRequests - 1)
     }
   }
 
@@ -568,7 +634,7 @@ export class Tunnel extends EventEmitter {
 
   private async forwardToLocalServer(request: ProxyRequest, retryCount = 0): Promise<ProxyResponse> {
     const maxRetries = this.options.maxRetries || 2
-    const baseTimeout = this.options.timeout || 15000
+    const baseTimeout = this.options.timeout || 60000
     const protocol = this.options.localHttps ? https : http
     const port = this.options.port
     const hostname = this.options.localHost || 'localhost'
@@ -576,7 +642,8 @@ export class Tunnel extends EventEmitter {
     log('=== Forwarding to local server ===')
     log('Request ID: %s (attempt %d/%d)', request.id, retryCount + 1, maxRetries + 1)
     log('Target: %s://%s:%s%s', this.options.localHttps ? 'https' : 'http', hostname, port, request.path)
-    log('Method: %s, Content-Length: %d', request.method, request.body?.length || 0)
+    const requestBodySize = calculateRequestBodySize(request)
+    log('Method: %s, Content-Length: %d', request.method, requestBodySize)
 
     // 初回リクエストまたは連続エラー後の場合のみサーバー健全性をチェック
     if (retryCount === 0) {
@@ -601,12 +668,7 @@ export class Tunnel extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      // SSE接続かどうかをチェック（POST リクエストは SSE パスを使わない）
-      const isSSERequest = request.method === 'GET' && (
-        request.headers.accept?.includes('text/event-stream') ||
-        request.path.includes('/sse') ||
-        request.headers['cache-control'] === 'no-cache'
-      )
+      const isSSERequest = isStreamingRequest(request)
 
       // 適応的タイムアウト設定
       let timeout = baseTimeout
@@ -622,9 +684,9 @@ export class Tunnel extends EventEmitter {
       }
 
       // リクエストサイズに基づくタイムアウト調整（より保守的に）
-      if (request.body && request.body.length > 50000) {
+      if (requestBodySize > 50000) {
         // 50KB以上
-        const sizeMultiplier = Math.min(1 + request.body.length / 500000, 2) // 最大2倍
+        const sizeMultiplier = Math.min(1 + requestBodySize / 500000, 2) // 最大2倍
         timeout = Math.min(timeout * sizeMultiplier, 180000) // 最大180秒
       }
 
@@ -726,14 +788,7 @@ export class Tunnel extends EventEmitter {
             contentEncoding.includes('zstd')
 
           // HTML/JavaScript/CSSなどのテキストコンテンツの判定を追加
-          const isTextContent =
-            contentType.includes('text/') ||
-            contentType.includes('application/json') ||
-            contentType.includes('application/javascript') ||
-            contentType.includes('application/x-javascript') ||
-            contentType.includes('text/javascript') ||
-            contentType.includes('application/xml') ||
-            contentType.includes('application/xhtml+xml')
+          const isTextContent = isTextContentType(contentType)
 
           log(
             'Response analysis for request %s: content-type=%s, content-encoding=%s, size=%d bytes, isBinary=%s, isCompressed=%s, isTextContent=%s',
@@ -746,16 +801,17 @@ export class Tunnel extends EventEmitter {
             isTextContent,
           )
 
-          let body: string = ''
+          let body: string | undefined
+          let bodyBinary: string | undefined
           let isBase64 = false
 
           if (isBinary) {
-            // For binary content only, encode as base64
-            body = bodyBuffer.toString('base64')
+            // For binary content, encode as base64 in bodyBinary only.
+            bodyBinary = bodyBuffer.toString('base64')
             isBase64 = true
             log('Encoded binary response as base64 for request %s', request.id)
             log('Content-Type: %s, Content-Encoding: %s', contentType, contentEncoding)
-            log('Original body size: %d bytes, Base64 size: %d bytes', bodyBuffer.length, body.length)
+            log('Original body size: %d bytes, Base64 size: %d bytes', bodyBuffer.length, bodyBinary.length)
           } else if (isCompressed && isTextContent) {
             // For compressed text content (HTML, JS, CSS), decompress and send as text
             // This allows Cloudflare Workers to handle compression appropriately
@@ -774,7 +830,7 @@ export class Tunnel extends EventEmitter {
               } else {
                 // Unknown compression, send as base64
                 log('Unknown compression format %s, sending compressed data as base64', contentEncoding)
-                body = bodyBuffer.toString('base64')
+                bodyBinary = bodyBuffer.toString('base64')
                 isBase64 = true
                 decompressedBuffer = bodyBuffer // Set to avoid undefined access
               }
@@ -791,16 +847,16 @@ export class Tunnel extends EventEmitter {
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : String(error)
               log('Failed to decompress content for request %s, sending as base64: %s', request.id, errorMessage)
-              body = bodyBuffer.toString('base64')
+              bodyBinary = bodyBuffer.toString('base64')
               isBase64 = true
             }
           } else if (isCompressed && !isTextContent) {
             // For compressed non-text content, encode as base64
-            body = bodyBuffer.toString('base64')
+            bodyBinary = bodyBuffer.toString('base64')
             isBase64 = true
             log('Encoded compressed non-text content as base64 for request %s', request.id)
             log('Content-Type: %s, Content-Encoding: %s', contentType, contentEncoding)
-            log('Original body size: %d bytes, Base64 size: %d bytes', bodyBuffer.length, body.length)
+            log('Original body size: %d bytes, Base64 size: %d bytes', bodyBuffer.length, bodyBinary.length)
           } else {
             // For uncompressed text content, use UTF-8
             body = bodyBuffer.toString('utf8')
@@ -820,6 +876,7 @@ export class Tunnel extends EventEmitter {
             status: res.statusCode || 200,
             headers: responseHeaders,
             body,
+            bodyBinary,
             isBase64,
           }
 
@@ -915,8 +972,12 @@ export class Tunnel extends EventEmitter {
       })
 
       // Send request body if present
-      if (request.body) {
-        log('Sending request body for request %s: %d bytes', request.id, request.body.length)
+      if (request.bodyBinary) {
+        const binaryBody = Buffer.from(request.bodyBinary, 'base64')
+        log('Sending binary request body for request %s: %d bytes', request.id, binaryBody.length)
+        req.write(binaryBody)
+      } else if (request.body) {
+        log('Sending request body for request %s: %d bytes', request.id, Buffer.byteLength(request.body))
         req.write(request.body)
       }
 
@@ -943,6 +1004,7 @@ export class Tunnel extends EventEmitter {
           const messageString = JSON.stringify(message)
           // log('Sending response message: %s', messageString);
           this.websocket.send(messageString)
+          this.updateWebSocketBufferedPeak()
           log('Response sent successfully for request %s', response.id)
         } else {
           // 分割が必要な場合
@@ -950,6 +1012,7 @@ export class Tunnel extends EventEmitter {
           for (const chunkMessage of chunkMessages) {
             const chunkString = JSON.stringify(chunkMessage)
             this.websocket.send(chunkString)
+            this.updateWebSocketBufferedPeak()
           }
           log('All response chunks sent successfully for request %s', response.id)
         }
@@ -966,6 +1029,7 @@ export class Tunnel extends EventEmitter {
       try {
         const pingMessage = JSON.stringify({ type: 'ping', timestamp: Date.now() })
         this.websocket.send(pingMessage)
+        this.updateWebSocketBufferedPeak()
         log('Ping sent to keep connection alive')
       } catch (error) {
         log('Failed to send ping:', error)
@@ -978,6 +1042,7 @@ export class Tunnel extends EventEmitter {
       try {
         const pongMessage = JSON.stringify({ type: 'pong', timestamp: Date.now() })
         this.websocket.send(pongMessage)
+        this.updateWebSocketBufferedPeak()
         log('Pong sent in response to ping')
       } catch (error) {
         log('Failed to send pong:', error)
@@ -1079,6 +1144,7 @@ export class Tunnel extends EventEmitter {
       log('=== Handling SSE request ===')
       log('Request ID: %s', request.id)
       log('Target: %s://%s:%s%s', this.options.localHttps ? 'https' : 'http', hostname, port, request.path)
+      this.activeSseRequests.add(request.id)
 
       const options: http.RequestOptions = {
         hostname,
@@ -1086,7 +1152,7 @@ export class Tunnel extends EventEmitter {
         path: request.path,
         method: request.method,
         headers: request.headers,
-        timeout: 300000, // 5分タイムアウト
+        timeout: this.options.sseTimeout ?? 3600000, // デフォルト1時間
       }
 
       // Handle HTTPS options
@@ -1135,6 +1201,7 @@ export class Tunnel extends EventEmitter {
 
           try {
             this.websocket.send(JSON.stringify(sseStartMessage))
+            this.updateWebSocketBufferedPeak()
             log('SSE start signal sent for request %s', request.id)
           } catch (error) {
             log('Failed to send SSE start signal for request %s:', request.id, error)
@@ -1157,6 +1224,7 @@ export class Tunnel extends EventEmitter {
 
             try {
               this.websocket.send(JSON.stringify(sseMessage))
+              this.updateWebSocketBufferedPeak()
               log('SSE chunk sent for request %s', request.id)
             } catch (error) {
               log('Failed to send SSE chunk for request %s:', request.id, error)
@@ -1178,6 +1246,7 @@ export class Tunnel extends EventEmitter {
 
             try {
               this.websocket.send(JSON.stringify(endMessage))
+              this.updateWebSocketBufferedPeak()
               log('SSE end signal sent for request %s', request.id)
             } catch (error) {
               log('Failed to send SSE end signal for request %s:', request.id, error)
@@ -1185,34 +1254,51 @@ export class Tunnel extends EventEmitter {
           }
 
           resolve()
+          this.activeSseRequests.delete(request.id)
         })
 
         res.on('error', (error) => {
           log('SSE response error for request %s:', request.id, error)
+          this.activeSseRequests.delete(request.id)
           reject(error)
         })
       })
 
       req.on('error', (error: Error) => {
         log('SSE request error for request %s:', request.id, error)
+        this.proxyMetrics.connectionErrors++
+        this.activeSseRequests.delete(request.id)
         reject(error)
       })
 
       req.on('timeout', () => {
         log('SSE request timeout for request %s', request.id)
         req.destroy()
+        this.proxyMetrics.timeoutErrors++
+        this.activeSseRequests.delete(request.id)
         reject(new Error('SSE Request timeout'))
       })
 
       // Send request body if present
-      if (request.body) {
-        log('Sending request body for SSE request %s: %d bytes', request.id, request.body.length)
+      if (request.bodyBinary) {
+        const binaryBody = Buffer.from(request.bodyBinary, 'base64')
+        log('Sending binary request body for SSE request %s: %d bytes', request.id, binaryBody.length)
+        req.write(binaryBody)
+      } else if (request.body) {
+        log('Sending request body for SSE request %s: %d bytes', request.id, Buffer.byteLength(request.body))
         req.write(request.body)
       }
 
       log('Sending SSE request to local server for request %s', request.id)
       req.end()
     })
+  }
+
+  private updateWebSocketBufferedPeak(): void {
+    const bufferedAmount = this.websocket?.bufferedAmount || 0
+    if (bufferedAmount > this.peakWebSocketBufferedAmount) {
+      this.peakWebSocketBufferedAmount = bufferedAmount
+    }
   }
 
   /**
@@ -1440,6 +1526,13 @@ export class Tunnel extends EventEmitter {
 
   // トンネルの統計情報を取得
   getStats() {
+    const memoryUsage = process.memoryUsage()
+    const totalOutcomes = this.proxyMetrics.totalResponses + this.proxyMetrics.totalErrors
+    const errorRatio = totalOutcomes > 0 ? this.proxyMetrics.totalErrors / totalOutcomes : 0
+    const timeoutRatio = totalOutcomes > 0 ? this.proxyMetrics.timeoutErrors / totalOutcomes : 0
+    const reconnectRate =
+      this.websocketDisconnectedCount > 0 ? this.reconnectScheduledCount / this.websocketDisconnectedCount : 0
+
     return {
       isConnected: this.websocket?.readyState === WebSocket.OPEN,
       connectionAttempts: this.reconnectAttempts,
@@ -1452,6 +1545,39 @@ export class Tunnel extends EventEmitter {
         cooldownMs: this.circuitBreakerCooldown,
       },
       chunker: messageChunker.getStats(),
+      observability: {
+        reconnect: {
+          disconnects: this.websocketDisconnectedCount,
+          reconnectScheduled: this.reconnectScheduledCount,
+          reconnectSucceeded: this.reconnectSuccessfulCount,
+          reconnectRate,
+        },
+        requestHealth: {
+          totalRequests: this.proxyMetrics.totalRequests,
+          totalResponses: this.proxyMetrics.totalResponses,
+          totalErrors: this.proxyMetrics.totalErrors,
+          timeoutErrors: this.proxyMetrics.timeoutErrors,
+          connectionErrors: this.proxyMetrics.connectionErrors,
+          errorRatio,
+          timeoutRatio,
+        },
+        backlog: {
+          pendingProxyRequests: this.pendingProxyRequests,
+          pendingHighWatermark: this.proxyMetrics.pendingHighWatermark,
+          activeSseRequests: this.activeSseRequests.size,
+        },
+        streamSignals: {
+          webSocketBufferedAmount: this.websocket?.bufferedAmount || 0,
+          webSocketBufferedAmountPeak: this.peakWebSocketBufferedAmount,
+        },
+        memory: {
+          rss: memoryUsage.rss,
+          heapUsed: memoryUsage.heapUsed,
+          heapTotal: memoryUsage.heapTotal,
+          external: memoryUsage.external,
+          arrayBuffers: memoryUsage.arrayBuffers,
+        },
+      },
       localServer: {
         host: this.options.localHost || 'localhost',
         port: this.options.port,

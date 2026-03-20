@@ -3,6 +3,7 @@ import type { ChunkData, WebSocketMessage } from './types.js'
 // Cloudflare WorkersのWebSocketメッセージサイズ制限 (1MB)
 const MAX_MESSAGE_SIZE = 1024 * 1024 // 1MB
 const CHUNK_SIZE = 768 * 1024 // 768KB
+const TEXT_ENCODER = new TextEncoder()
 
 /**
  * UTF-8セーフな文字列分割
@@ -10,14 +11,13 @@ const CHUNK_SIZE = 768 * 1024 // 768KB
  */
 function safeStringChunk(str: string, maxBytes: number): string[] {
   const chunks: string[] = []
-  const encoder = new TextEncoder()
 
   let currentIndex = 0
 
   while (currentIndex < str.length) {
     // 残りの文字列が制限内の場合はそのまま追加
     const remaining = str.substring(currentIndex)
-    const remainingBytes = encoder.encode(remaining)
+    const remainingBytes = TEXT_ENCODER.encode(remaining)
     if (remainingBytes.length <= maxBytes) {
       chunks.push(remaining)
       break
@@ -31,7 +31,7 @@ function safeStringChunk(str: string, maxBytes: number): string[] {
     while (left <= right) {
       const mid = Math.floor((left + right) / 2)
       const testChunk = str.substring(currentIndex, currentIndex + mid)
-      const encoded = encoder.encode(testChunk)
+      const encoded = TEXT_ENCODER.encode(testChunk)
 
       if (encoded.length <= maxBytes) {
         bestLength = mid
@@ -58,6 +58,8 @@ function safeStringChunk(str: string, maxBytes: number): string[] {
 }
 
 export class MessageChunker {
+  private receivedChunkCount = 0
+  private readonly cleanupInterval = 10
   private chunks: Map<
     string,
     {
@@ -73,7 +75,7 @@ export class MessageChunker {
    * メッセージが分割が必要かチェック
    */
   needsChunking(message: string): boolean {
-    return new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE
+    return TEXT_ENCODER.encode(message).length > MAX_MESSAGE_SIZE
   }
   /**
    * メッセージを分割（UTF-8セーフ）
@@ -115,9 +117,14 @@ export class MessageChunker {
   receiveChunk(chunkData: ChunkData): WebSocketMessage | null {
     const { messageId, chunkIndex, totalChunks, chunk, originalType } = chunkData
 
-    // 定期的にクリーンアップを実行（10回に1回）
-    if (Math.random() < 0.1) {
+    this.receivedChunkCount++
+    if (this.receivedChunkCount % this.cleanupInterval === 0) {
       this.cleanup()
+    }
+
+    if (chunkIndex < 0 || chunkIndex >= totalChunks) {
+      console.error(`Invalid chunk index ${chunkIndex} for message ${messageId} (totalChunks: ${totalChunks})`)
+      return null
     }
 
     if (!this.chunks.has(messageId)) {
@@ -136,14 +143,24 @@ export class MessageChunker {
       return null
     }
 
+    if (messageInfo.totalChunks !== totalChunks) {
+      console.error(
+        `Chunk total mismatch for message ${messageId}: expected ${messageInfo.totalChunks}, got ${totalChunks}`,
+      )
+      return null
+    }
+
+    const isNewChunk = messageInfo.chunks[chunkIndex] === undefined
     messageInfo.chunks[chunkIndex] = chunk
-    messageInfo.receivedChunks++ // すべてのチャンクが揃ったかチェック
+    if (isNewChunk) {
+      messageInfo.receivedChunks++
+    }
+
     if (messageInfo.receivedChunks === totalChunks) {
+      let combinedString = ''
       try {
         // チャンクを結合（Base64デコードなし）
-        const combinedString = messageInfo.chunks.join('')
-
-        console.log(`Attempting to reconstruct message ${messageId}, combinedString length: ${combinedString.length}`)
+        combinedString = messageInfo.chunks.join('')
 
         // 元のメッセージを復元
         const originalMessage: WebSocketMessage = JSON.parse(combinedString)
@@ -155,13 +172,9 @@ export class MessageChunker {
         return originalMessage
       } catch (error) {
         console.error('Failed to reconstruct message:', error)
-        console.error('Combined string length:', messageInfo.chunks.join('').length)
+        console.error('Combined string length:', combinedString.length)
         console.error('Total chunks received:', messageInfo.receivedChunks)
         console.error('Expected chunks:', totalChunks)
-        console.error(
-          'Individual chunk lengths:',
-          messageInfo.chunks.map((c, i) => `${i}: ${c ? c.length : 'null'}`),
-        )
         this.chunks.delete(messageId)
         return null
       }

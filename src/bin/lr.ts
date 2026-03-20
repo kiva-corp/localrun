@@ -76,6 +76,16 @@ const args = yargs(hideBin(process.argv))
     type: 'number',
     default: 2,
   })
+  .option('max-reconnect-attempts', {
+    describe: 'Maximum websocket reconnect attempts after disconnect (default: 10)',
+    type: 'number',
+    default: 10,
+  })
+  .option('sse-timeout', {
+    describe: 'SSE request timeout in milliseconds (default: 3600000)',
+    type: 'number',
+    default: 3600000,
+  })
   .options('o', {
     alias: 'open',
     describe: 'Opens the tunnel URL in your browser',
@@ -149,6 +159,8 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
       allowInvalidCert: argv['allow-invalid-cert'] as boolean,
       timeout: argv.timeout as number,
       maxRetries: argv['max-retries'] as number,
+      maxReconnectAttempts: argv['max-reconnect-attempts'] as number,
+      sseTimeout: argv['sse-timeout'] as number,
     })
 
     tunnel.on('url', (url: string) => {
