@@ -184,6 +184,55 @@ describe('MessageChunker', () => {
         }
       }
     })
+
+    it('should preserve binary request payload metadata through chunking', () => {
+      const binaryBody = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]).toString('base64')
+      const originalMessage: WebSocketMessage = {
+        type: 'request',
+        data: {
+          id: 'test-binary-request',
+          method: 'POST',
+          path: '/upload',
+          headers: { 'content-type': 'application/octet-stream' },
+          bodyBinary: binaryBody,
+          isBinaryRequest: true,
+        },
+      }
+
+      const messageId = chunker.generateMessageId()
+      const chunks = chunker.chunkMessage(originalMessage, messageId)
+      expect(chunks.length).to.equal(1)
+      expect(chunks[0]).to.deep.equal(originalMessage)
+    })
+
+    it('should reconstruct chunked binary response payloads', () => {
+      const binaryBody = Buffer.alloc(1024 * 1024, 0xab).toString('base64')
+      const originalMessage: WebSocketMessage = {
+        type: 'response',
+        data: {
+          id: 'test-binary-response',
+          status: 200,
+          headers: { 'content-type': 'application/octet-stream' },
+          body: binaryBody,
+          bodyBinary: binaryBody,
+          isBase64: true,
+        },
+      }
+
+      const messageId = chunker.generateMessageId()
+      const chunks = chunker.chunkMessage(originalMessage, messageId)
+      expect(chunks.length).to.be.greaterThan(1)
+
+      let reconstructed: WebSocketMessage | null = null
+      chunks.forEach((chunk, index) => {
+        const result = chunker.receiveChunk(chunk.data as ChunkData)
+        if (index === chunks.length - 1) {
+          reconstructed = result
+        }
+      })
+
+      expect(reconstructed).to.deep.equal(originalMessage)
+    })
   })
 
   describe('receiveChunk', () => {
@@ -271,6 +320,51 @@ describe('MessageChunker', () => {
 
       const result = chunker.receiveChunk(chunkData)
       expect(result).to.be.null
+    })
+
+    it('should ignore duplicate chunks without double counting', () => {
+      const originalMessage: WebSocketMessage = {
+        type: 'request',
+        data: {
+          id: 'test-duplicate-chunk',
+          method: 'POST',
+          path: '/api/dup',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: 'z'.repeat(1500000) }),
+        },
+      }
+
+      const messageId = chunker.generateMessageId()
+      const chunks = chunker.chunkMessage(originalMessage, messageId)
+      expect(chunks.length).to.be.greaterThan(1)
+
+      const firstChunkData = chunks[0].data as ChunkData
+      expect(chunker.receiveChunk(firstChunkData)).to.be.null
+      expect(chunker.receiveChunk(firstChunkData)).to.be.null
+
+      let reconstructed: WebSocketMessage | null = null
+      for (let i = 1; i < chunks.length; i++) {
+        const result = chunker.receiveChunk(chunks[i].data as ChunkData)
+        if (i === chunks.length - 1) {
+          reconstructed = result
+        }
+      }
+
+      expect(reconstructed).to.deep.equal(originalMessage)
+    })
+
+    it('should return null for out-of-range chunk index', () => {
+      const chunkData: ChunkData = {
+        messageId: 'test-invalid-index',
+        chunkIndex: 3,
+        totalChunks: 3,
+        chunk: 'invalid',
+        originalType: 'request',
+      }
+
+      const result = chunker.receiveChunk(chunkData)
+      expect(result).to.be.null
+      expect(chunker.getStats().activeChunks).to.equal(0)
     })
   })
 
