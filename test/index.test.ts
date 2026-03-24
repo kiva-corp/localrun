@@ -8,6 +8,8 @@ import type { TunnelOptions } from '../src/types.js'
 describe('localrun', () => {
   let testServer: http.Server
   let testPort: number
+  const testHost = 'http://127.0.0.1:1'
+  const activeTunnels = new Set<Tunnel>()
 
   // Helper function to find an available port
   const findAvailablePort = (): Promise<number> => {
@@ -40,6 +42,11 @@ describe('localrun', () => {
   })
 
   afterEach(async () => {
+    for (const tunnel of activeTunnels) {
+      await tunnel.gracefulShutdown().catch(() => tunnel.close())
+    }
+    activeTunnels.clear()
+
     if (testServer) {
       await new Promise<void>((resolve) => {
         testServer.close(() => resolve(undefined))
@@ -51,15 +58,13 @@ describe('localrun', () => {
     it('should accept TunnelOptions', async () => {
       const options: TunnelOptions = {
         port: testPort,
-        host: 'https://httpbin.org', // Use a known endpoint for testing
+        host: testHost,
       }
 
       try {
         const tunnel = await localrun(options)
+        activeTunnels.add(tunnel)
         expect(tunnel).to.be.instanceOf(Tunnel)
-        if (tunnel) {
-          tunnel.close()
-        }
       } catch (error) {
         // Connection errors are expected in test environment
         expect(error).to.be.instanceOf(Error)
@@ -68,15 +73,13 @@ describe('localrun', () => {
 
     it('should accept port number and options', async () => {
       const options: Omit<TunnelOptions, 'port'> = {
-        host: 'https://httpbin.org',
+        host: testHost,
       }
 
       try {
         const tunnel = await localrun(testPort, options)
+        activeTunnels.add(tunnel)
         expect(tunnel).to.be.instanceOf(Tunnel)
-        if (tunnel) {
-          tunnel.close()
-        }
       } catch (error) {
         // Connection errors are expected in test environment
         expect(error).to.be.instanceOf(Error)
@@ -158,14 +161,15 @@ describe('localrun', () => {
     it('should return tunnel without callback', () => {
       const options: TunnelOptions = {
         port: testPort,
-        host: 'https://httpbin.org',
+        host: testHost,
       }
 
       const tunnel = localrun.connect(options)
+      tunnel.on('error', () => {
+        // Expected in test environment with unreachable tunnel host.
+      })
+      activeTunnels.add(tunnel)
       expect(tunnel).to.be.instanceOf(Tunnel)
-
-      // Clean up
-      setTimeout(() => tunnel.close(), 100)
     })
   })
 

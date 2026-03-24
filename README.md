@@ -62,6 +62,8 @@ Below are some common arguments. See `lr --help` for all available options:
 - `--allow-invalid-cert` - Disable certificate checks for your local HTTPS server
 - `--timeout` - Request timeout in milliseconds (default: 15000)
 - `--max-retries` - Maximum number of retry attempts for failed requests (default: 2)
+- `--max-reconnect-attempts` - Maximum websocket reconnect attempts after disconnect (default: 10)
+- `--sse-timeout` - SSE request timeout in milliseconds (default: 3600000)
 - `--open` or `-o` - Opens the tunnel URL in your browser
 - `--print-requests` - Print basic request info
 
@@ -146,6 +148,8 @@ localrun.connect(3000, (err, tunnel) => {
 - `allowInvalidCert` (boolean) - Disable certificate checks for your local HTTPS server
 - `timeout` (number) - Request timeout in milliseconds (default: 15000)
 - `maxRetries` (number) - Maximum number of retry attempts (default: 2)
+- `maxReconnectAttempts` (number) - Maximum websocket reconnect attempts (default: 10)
+- `sseTimeout` (number) - SSE request timeout in milliseconds (default: 3600000)
 
 ### Tunnel Instance
 
@@ -201,6 +205,41 @@ Enable detailed logging for troubleshooting:
 ```bash
 DEBUG=localrun:* lr --port 3000
 ```
+
+### Stability Observability (Client)
+
+`tunnel.getStats()` now includes an `observability` section with stability-focused signals:
+
+- reconnect/disconnect counters and reconnect success rate
+- request error/timeout ratios
+- pending request buildup and high-watermark
+- active SSE request count
+- WebSocket buffered amount (current + peak) for backpressure hints
+- lightweight process memory usage (rss/heap/external)
+
+Example:
+
+```js
+const stats = tunnel.getStats()
+console.log(stats.observability.requestHealth.errorRatio)
+console.log(stats.observability.backlog.pendingHighWatermark)
+```
+
+### Rollout / Rollback Guardrails
+
+For safe rollout, monitor `tunnel.getStats().observability` during canary usage:
+
+1. Start with a small subset of tunnels (or internal users).
+2. Verify reconnect success remains stable and `pendingHighWatermark` does not trend upward.
+3. Verify timeout/error ratios stay close to pre-rollout baseline.
+4. Check WebSocket buffered peak and memory metrics for sustained growth.
+
+Rollback guidance:
+
+- rollback if timeout/error ratios spike persistently
+- rollback if reconnects repeatedly fail after disconnects
+- rollback if pending/SSE backlog grows continuously without recovery
+- rollback if memory or buffered peak grows abnormally over time
 
 ## Troubleshooting
 
