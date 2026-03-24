@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/kiva-corp/localrun/compare/v1.1.1...v1.1.2) (2026-03-24)
+
+### Performance Improvements
+
+* durability ([36e802f](https://github.com/kiva-corp/localrun/commit/36e802fd62aaeea932a746c3f0aa824a12cc11d0))
+* durability ([#25](https://github.com/kiva-corp/localrun/issues/25)) ([3137ea9](https://github.com/kiva-corp/localrun/commit/3137ea99a6b40d5db9e63231e52a2d5261ca60f5))
+
 ## [1.1.1](https://github.com/kiva-corp/localrun/compare/v1.1.0...v1.1.1) (2026-03-18)
 
 ### Bug Fixes
