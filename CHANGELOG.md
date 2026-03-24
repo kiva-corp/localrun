@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/kiva-corp/localrun/compare/v1.1.2...v1.1.3) (2026-03-24)
+
+### Bug Fixes
+
+* engine version ([c5be279](https://github.com/kiva-corp/localrun/commit/c5be27945ec5e8983e3b72e62dcff739c4a24125))
+* engine version ([#27](https://github.com/kiva-corp/localrun/issues/27)) ([e6e5a50](https://github.com/kiva-corp/localrun/commit/e6e5a50a966ddb425d500841101ace2b661e350b))
+
 ## [1.1.2](https://github.com/kiva-corp/localrun/compare/v1.1.1...v1.1.2) (2026-03-24)
 
 ### Performance Improvements
