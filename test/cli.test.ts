@@ -1,12 +1,79 @@
 import * as child_process from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import * as http from 'node:http'
 import { expect } from 'chai'
 import { afterEach, beforeEach, describe, it } from 'mocha'
 
 describe('CLI (lr.ts)', () => {
   const cliPath = path.join(process.cwd(), 'dist', 'bin', 'lr.js')
   let testProcess: child_process.ChildProcess | null = null
+
+  function spawnCli(args: string[], options: child_process.SpawnOptions = {}) {
+    return child_process.spawn('node', [cliPath, ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...options,
+    })
+  }
+
+  function waitForClose(child: child_process.ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+    return new Promise((resolve) => {
+      child.once('close', (code, signal) => resolve({ code, signal }))
+    })
+  }
+
+  function collectOutput(child: child_process.ChildProcess) {
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (data) => {
+      stdout += data.toString()
+    })
+    child.stderr?.on('data', (data) => {
+      stderr += data.toString()
+    })
+    return {
+      getStdout: () => stdout,
+      getStderr: () => stderr,
+    }
+  }
+
+  function waitForStdoutContains(child: child_process.ChildProcess, expected: string, timeoutMs = 2000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let output = ''
+      const onData = (data: Buffer) => {
+        output += data.toString()
+        if (output.includes(expected)) {
+          cleanup()
+          resolve()
+        }
+      }
+      const onClose = () => {
+        cleanup()
+        reject(new Error(`Process closed before stdout contained "${expected}". Output:\n${output}`))
+      }
+      const timer = setTimeout(() => {
+        cleanup()
+        reject(new Error(`Timed out waiting for stdout to contain "${expected}". Output:\n${output}`))
+      }, timeoutMs)
+
+      const cleanup = () => {
+        clearTimeout(timer)
+        child.stdout?.off('data', onData)
+        child.off('close', onClose)
+      }
+
+      child.stdout?.on('data', onData)
+      child.once('close', onClose)
+    })
+  }
+
+  async function terminateAndWait(child: child_process.ChildProcess, signal: NodeJS.Signals = 'SIGTERM') {
+    if (child.killed || child.exitCode !== null) {
+      return waitForClose(child)
+    }
+    child.kill(signal)
+    return waitForClose(child)
+  }
 
   beforeEach(() => {
     // Ensure the CLI is built
@@ -23,169 +90,78 @@ describe('CLI (lr.ts)', () => {
   })
 
   describe('command line arguments', () => {
-    it('should show help when --help is provided', (done) => {
-      const process = child_process.spawn('node', [cliPath, '--help'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-
-      let output = ''
-      process.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      process.on('close', (code) => {
-        expect(code).to.equal(0)
-        expect(output).to.include('Usage: lr --port')
-        expect(output).to.include('--port')
-        expect(output).to.include('--host')
-        expect(output).to.include('--subdomain')
-        done()
-      })
+    it('should show help when --help is provided', async () => {
+      const process = spawnCli(['--help'])
+      const output = collectOutput(process)
+      const { code } = await waitForClose(process)
+      expect(code).to.equal(0)
+      expect(output.getStdout()).to.include('Usage: lr --port')
+      expect(output.getStdout()).to.include('--port')
+      expect(output.getStdout()).to.include('--host')
+      expect(output.getStdout()).to.include('--subdomain')
     }).timeout(5000)
 
-    it('should show version when --version is provided', (done) => {
-      const process = child_process.spawn('node', [cliPath, '--version'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-
-      let output = ''
-      process.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      process.on('close', (code) => {
-        expect(code).to.equal(0)
-        expect(output.trim()).to.match(/^\d+\.\d+\.\d+/)
-        done()
-      })
+    it('should show version when --version is provided', async () => {
+      const process = spawnCli(['--version'])
+      const output = collectOutput(process)
+      const { code } = await waitForClose(process)
+      expect(code).to.equal(0)
+      expect(output.getStdout().trim()).to.match(/^\d+\.\d+\.\d+/)
     }).timeout(5000)
 
-    it('should fail when no port is provided', (done) => {
-      const process = child_process.spawn('node', [cliPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-
-      let errorOutput = ''
-      process.stderr.on('data', (data) => {
-        errorOutput += data.toString()
-      })
-
-      process.on('close', (code) => {
-        expect(code).to.not.equal(0)
-        expect(errorOutput).to.include('Missing required argument')
-        done()
-      })
+    it('should fail when no port is provided', async () => {
+      const process = spawnCli([])
+      const output = collectOutput(process)
+      const { code } = await waitForClose(process)
+      expect(code).to.not.equal(0)
+      expect(output.getStderr()).to.include('Missing required argument')
     }).timeout(5000)
 
-    it('should fail with invalid subdomain', (done) => {
-      const process = child_process.spawn('node', [cliPath, '--port', '3000', '--subdomain', 'invalid-subdomain'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-
-      let errorOutput = ''
-      process.stderr.on('data', (data) => {
-        errorOutput += data.toString()
-      })
-
-      process.on('close', (code) => {
-        expect(code).to.not.equal(0)
-        expect(errorOutput).to.include('Subdomain must be alphanumeric and exactly 10 characters')
-        done()
-      })
+    it('should fail with invalid subdomain', async () => {
+      const process = spawnCli(['--port', '3000', '--subdomain', 'invalid-subdomain'])
+      const output = collectOutput(process)
+      const { code } = await waitForClose(process)
+      expect(code).to.not.equal(0)
+      expect(output.getStderr()).to.include('Subdomain must be alphanumeric and exactly 10 characters')
     }).timeout(5000)
 
-    it('should accept valid arguments', (done) => {
-      // Use a non-existent port to quickly fail the connection
-      const childProcess = child_process.spawn(
-        'node',
-        [cliPath, '--port', '99999', '--host', 'https://httpbin.org', '--timeout', '1000'],
-        {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        },
-      )
-
-      let output = ''
-
-      childProcess.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      childProcess.stderr.on('data', (_data) => {
-        // Ignore stderr for this test
-      })
-
-      // Kill the process after a short time since we expect it to fail
-      setTimeout(() => {
-        childProcess.kill('SIGTERM')
-      }, 2000)
-
-      childProcess.on('close', () => {
-        // Should start and show the starting message
-        expect(output).to.include('Starting localrun client')
-        done()
-      })
+    it('should accept valid arguments', async () => {
+      const childProcess = spawnCli(['--port', '99999', '--host', 'https://httpbin.org', '--timeout', '1000'])
+      const output = collectOutput(childProcess)
+      await waitForStdoutContains(childProcess, 'Starting localrun client')
+      await terminateAndWait(childProcess)
+      expect(output.getStdout()).to.include('Starting localrun client')
     }).timeout(5000)
   })
 
   describe('HTTPS certificate validation', () => {
-    it('should fail when HTTPS is enabled but cert files are missing', (done) => {
-      const process = child_process.spawn(
-        'node',
-        [
-          cliPath,
-          '--port',
-          '3000',
-          '--local-https',
-          '--local-cert',
-          '/nonexistent/cert.pem',
-          '--local-key',
-          '/nonexistent/key.pem',
-        ],
-        {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        },
-      )
-
-      let errorOutput = ''
-      process.stderr.on('data', (data) => {
-        errorOutput += data.toString()
-      })
-
-      process.on('close', (code) => {
-        expect(code).to.equal(1)
-        expect(errorOutput).to.include('Cannot access SSL certificate files') // Match actual error message
-        done()
-      })
+    it('should fail when HTTPS is enabled but cert files are missing', async () => {
+      const process = spawnCli([
+        '--port',
+        '3000',
+        '--local-https',
+        '--local-cert',
+        '/nonexistent/cert.pem',
+        '--local-key',
+        '/nonexistent/key.pem',
+      ])
+      const output = collectOutput(process)
+      const { code } = await waitForClose(process)
+      expect(code).to.equal(1)
+      expect(output.getStderr()).to.include('Cannot access SSL certificate files')
     }).timeout(5000)
 
-    it('should accept allow-invalid-cert flag', (done) => {
-      const process = child_process.spawn(
-        'node',
-        [cliPath, '--port', '99999', '--local-https', '--allow-invalid-cert', '--timeout', '1000'],
-        {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        },
-      )
-
-      let output = ''
-      process.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      // Kill the process after a short time
-      setTimeout(() => {
-        process.kill('SIGTERM')
-      }, 2000)
-
-      process.on('close', () => {
-        expect(output).to.include('Starting localrun client')
-        done()
-      })
+    it('should accept allow-invalid-cert flag', async () => {
+      const process = spawnCli(['--port', '99999', '--local-https', '--allow-invalid-cert', '--timeout', '1000'])
+      const output = collectOutput(process)
+      await waitForStdoutContains(process, 'Starting localrun client')
+      await terminateAndWait(process)
+      expect(output.getStdout()).to.include('Starting localrun client')
     }).timeout(5000)
   })
 
   describe('environment variables', () => {
-    it('should accept environment variables', (done) => {
+    it('should accept environment variables', async () => {
       const env = {
         ...global.process.env,
         LR_PORT: '3000', // Use LR_PORT with LR_ prefix
@@ -193,119 +169,87 @@ describe('CLI (lr.ts)', () => {
         LR_TIMEOUT: '1000', // Use LR_TIMEOUT with LR_ prefix
       }
 
-      const childProcess = child_process.spawn('node', [cliPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
+      const childProcess = spawnCli([], {
         env,
       })
 
-      let output = ''
-      childProcess.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      // Kill the process after a short time
-      setTimeout(() => {
-        childProcess.kill('SIGTERM')
-      }, 2000)
-
-      childProcess.on('close', () => {
-        expect(output).to.include('Starting localrun client')
-        done()
-      })
+      const output = collectOutput(childProcess)
+      await waitForStdoutContains(childProcess, 'Starting localrun client')
+      await terminateAndWait(childProcess)
+      expect(output.getStdout()).to.include('Starting localrun client')
     }).timeout(5000)
   })
 
   describe('debug mode', () => {
-    it('should enable debug logging when DEBUG env var is set', (done) => {
+    it('should enable debug logging when DEBUG env var is set', async () => {
       const env = {
         ...global.process.env,
         DEBUG: 'localrun:*',
       }
 
-      const childProcess = child_process.spawn('node', [cliPath, '--port', '99999', '--timeout', '1000'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
+      const childProcess = spawnCli(['--port', '99999', '--timeout', '1000'], {
         env,
       })
 
-      let output = ''
-      childProcess.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      // Kill the process after a short time
-      setTimeout(() => {
-        childProcess.kill('SIGTERM')
-      }, 2000)
-
-      childProcess.on('close', () => {
-        expect(output).to.include('Debug logging enabled')
-        done()
-      })
+      const output = collectOutput(childProcess)
+      await waitForStdoutContains(childProcess, 'Debug logging enabled')
+      await terminateAndWait(childProcess)
+      expect(output.getStdout()).to.include('Debug logging enabled')
     }).timeout(5000)
   })
 
   describe('signal handling', () => {
-    it('should handle SIGINT gracefully', (done) => {
-      const childProcess = child_process.spawn('node', [cliPath, '--port', '99999', '--timeout', '1000'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
+    it('should handle SIGINT gracefully', async () => {
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' })
+        res.end('ok')
+      })
+      await new Promise<void>((resolve) => server.listen(0, resolve))
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+
+      const childProcess = spawnCli(['--port', String(port), '--host', 'http://10.255.255.1'])
+      const output = collectOutput(childProcess)
+
+      await waitForStdoutContains(childProcess, 'Starting localrun client')
+      const { code, signal } = await terminateAndWait(childProcess, 'SIGINT')
+
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
       })
 
-      // Send SIGINT after a short delay
-      setTimeout(() => {
-        childProcess.kill('SIGINT')
-      }, 1000)
-
-      childProcess.on('close', (code) => {
-        // Should exit gracefully (code 0 or exit due to signal)
-        expect([0, null]).to.include(code)
-        done()
-      })
+      expect([0, null]).to.include(code)
+      expect([null, 'SIGINT']).to.include(signal)
+      expect(output.getStdout()).to.include('Starting localrun client')
     }).timeout(5000)
   })
 
   describe('argument parsing edge cases', () => {
-    it('should handle numeric arguments correctly', (done) => {
-      const process = child_process.spawn(
-        'node',
-        [cliPath, '--port', '8080', '--timeout', '5000', '--max-retries', '3'],
-        {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        },
-      )
-
-      let output = ''
-      process.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      setTimeout(() => {
-        process.kill('SIGTERM')
-      }, 1000)
-
-      process.on('close', () => {
-        expect(output).to.include('Starting localrun client')
-        done()
-      })
+    it('should handle numeric arguments correctly', async () => {
+      const process = spawnCli([
+        '--port',
+        '8080',
+        '--timeout',
+        '5000',
+        '--max-retries',
+        '3',
+        '--max-reconnect-attempts',
+        '100',
+        '--sse-timeout',
+        '7200000',
+      ])
+      const output = collectOutput(process)
+      await waitForStdoutContains(process, 'Starting localrun client')
+      await terminateAndWait(process)
+      expect(output.getStdout()).to.include('Starting localrun client')
     }).timeout(5000)
 
-    it('should handle boolean flags correctly', (done) => {
-      const process = child_process.spawn('node', [cliPath, '--port', '8080', '--print-requests', '--open'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-
-      let output = ''
-      process.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-
-      setTimeout(() => {
-        process.kill('SIGTERM')
-      }, 1000)
-
-      process.on('close', () => {
-        expect(output).to.include('Starting localrun client')
-        done()
-      })
+    it('should handle boolean flags correctly', async () => {
+      const process = spawnCli(['--port', '8080', '--print-requests', '--open'])
+      const output = collectOutput(process)
+      await waitForStdoutContains(process, 'Starting localrun client')
+      await terminateAndWait(process)
+      expect(output.getStdout()).to.include('Starting localrun client')
     }).timeout(5000)
   })
 })
