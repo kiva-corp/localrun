@@ -95,6 +95,15 @@ const args = yargs(hideBin(process.argv))
     describe: 'Print basic request info',
     type: 'boolean',
   })
+  .option('proxy', {
+    describe:
+      'Proxy server URL (e.g. https://proxy:8080). Auto-detects from HTTPS_PROXY/HTTP_PROXY env vars if not specified.',
+    type: 'string',
+  })
+  .option('no-proxy', {
+    describe: 'Disable proxy even if HTTPS_PROXY/HTTP_PROXY env vars are set',
+    type: 'boolean',
+  })
   .help('help', 'Show this help and exit')
   .version(version)
 
@@ -148,6 +157,12 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
   }
 
   try {
+    if (argv['no-proxy']) {
+      console.log('Proxy disabled')
+    } else if (argv.proxy) {
+      console.log(`Using proxy: ${argv.proxy}`)
+    }
+
     const tunnel = await localrun(argv.port as number, {
       host: argv.host as string,
       subdomain: argv.subdomain as string,
@@ -161,6 +176,8 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
       maxRetries: argv['max-retries'] as number,
       maxReconnectAttempts: argv['max-reconnect-attempts'] as number,
       sseTimeout: argv['sse-timeout'] as number,
+      proxy: argv.proxy as string | undefined,
+      noProxy: argv['no-proxy'] as boolean | undefined,
     })
 
     tunnel.on('url', (url: string) => {

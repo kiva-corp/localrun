@@ -4,8 +4,10 @@ import * as http from 'node:http'
 import * as https from 'node:https'
 import * as net from 'node:net'
 import * as zlib from 'node:zlib'
-import axios, { type AxiosResponse } from 'axios'
+import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import debug from 'debug'
+import { HttpsProxyAgent } from 'https-proxy-agent'
+import { getProxyForUrl } from 'proxy-from-env'
 import WebSocket from 'ws'
 import { messageChunker } from './chunk-utils.js'
 import { LocalPortConnectionError, type LocalPortErrorCode, type LocalPortValidationResult } from './error.js'
@@ -59,6 +61,7 @@ export class Tunnel extends EventEmitter {
   private maxReconnectAttempts = 10
   private reconnectAttempts = 0
   private keepAliveInterval: ReturnType<typeof setInterval> | null = null // 追加
+  private proxyAgent: http.Agent | null = null
   private reconnectBackoffMultiplier = 1.5 // 追加：指数バックオフ
   private maxReconnectDelay = 30000 // 追加：最大再接続遅延（30秒）
 
@@ -114,6 +117,8 @@ export class Tunnel extends EventEmitter {
     }
     log('✅ Local port validation successful')
 
+    this.resolveProxy()
+
     return new Promise((resolve, reject) => {
       this.initTunnel()
         .then((info) => {
@@ -145,12 +150,46 @@ export class Tunnel extends EventEmitter {
     })
   }
 
+  private resolveProxy(): void {
+    this.proxyAgent?.destroy()
+    this.proxyAgent = null
+
+    if (this.options.noProxy) {
+      log('Proxy explicitly disabled')
+      return
+    }
+
+    const explicit = this.options.proxy
+    const proxyUrl = explicit ?? getProxyForUrl(this.options.host ?? '')
+    if (!proxyUrl) {
+      log('No proxy configured')
+      return
+    }
+
+    if (!URL.canParse(proxyUrl)) {
+      if (explicit) {
+        throw new Error(`Invalid proxy URL: ${proxyUrl}`)
+      }
+      log('Invalid proxy URL from environment, skipping: %s', proxyUrl)
+      return
+    }
+
+    log('Using proxy: %s', proxyUrl)
+    this.proxyAgent = new HttpsProxyAgent(proxyUrl)
+  }
+
   private async initTunnel(): Promise<TunnelInfo> {
     const endpoint = this.options.subdomain ? `${this.options.host}/api/tunnels` : `${this.options.host}/?new`
 
     log('requesting tunnel from %s', endpoint)
 
     try {
+      const axiosConfig: AxiosRequestConfig = {
+        responseType: 'json',
+        timeout: 10000,
+        ...(this.proxyAgent && { httpsAgent: this.proxyAgent, proxy: false as const }),
+      }
+
       let response: AxiosResponse<{
         id: string
         url: string
@@ -166,17 +205,11 @@ export class Tunnel extends EventEmitter {
           {
             subdomain: this.options.subdomain,
           },
-          {
-            responseType: 'json',
-            timeout: 10000,
-          },
+          axiosConfig,
         )
       } else {
         // GET request for random subdomain
-        response = await axios.get(endpoint, {
-          responseType: 'json',
-          timeout: 10000,
-        })
+        response = await axios.get(endpoint, axiosConfig)
       }
 
       if (response.status !== 200) {
@@ -218,9 +251,12 @@ export class Tunnel extends EventEmitter {
       this.keepAliveInterval = null
     }
 
-    this.websocket = new WebSocket(wsUrl, {
+    const wsOptions: WebSocket.ClientOptions = {
       handshakeTimeout: 10000,
-    })
+      ...(this.proxyAgent && { agent: this.proxyAgent }),
+    }
+
+    this.websocket = new WebSocket(wsUrl, wsOptions)
 
     this.websocket.on('open', () => {
       log('✅ WebSocket connected successfully')
@@ -1115,6 +1151,11 @@ export class Tunnel extends EventEmitter {
     if (this.localServer) {
       this.localServer.close()
       this.localServer = null
+    }
+
+    if (this.proxyAgent) {
+      this.proxyAgent.destroy()
+      this.proxyAgent = null
     }
 
     // メッセージチャンカーのクリーンアップ

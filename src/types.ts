@@ -12,6 +12,10 @@ export interface TunnelOptions {
   maxRetries?: number
   maxReconnectAttempts?: number
   sseTimeout?: number
+  /** Explicit proxy URL. When omitted, proxy is auto-detected from HTTPS_PROXY / HTTP_PROXY / NO_PROXY env vars. */
+  proxy?: string
+  /** Disable proxy entirely, even when env vars are set. Takes precedence over `proxy`. */
+  noProxy?: boolean
 }
 
 export interface TunnelInfo {
