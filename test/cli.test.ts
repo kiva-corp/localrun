@@ -224,6 +224,79 @@ describe('CLI (lr.ts)', () => {
     }).timeout(5000)
   })
 
+  describe('proxy options', () => {
+    it('should show --proxy option in help', async () => {
+      const process = spawnCli(['--help'])
+      const output = collectOutput(process)
+      const { code } = await waitForClose(process)
+      expect(code).to.equal(0)
+      expect(output.getStdout()).to.include('--proxy')
+    }).timeout(5000)
+
+    it('should print proxy URL when --proxy is specified', async () => {
+      const childProcess = spawnCli([
+        '--port', '99999',
+        '--proxy', 'http://127.0.0.1:9999',
+        '--timeout', '1000',
+      ])
+      const output = collectOutput(childProcess)
+      await waitForStdoutContains(childProcess, 'Using proxy')
+      await terminateAndWait(childProcess)
+      expect(output.getStdout()).to.include('Using proxy')
+    }).timeout(5000)
+
+    it('should print "Proxy disabled" when --no-proxy is specified', async () => {
+      const childProcess = spawnCli([
+        '--port', '99999',
+        '--no-proxy',
+        '--timeout', '1000',
+      ])
+      const output = collectOutput(childProcess)
+      await waitForStdoutContains(childProcess, 'Proxy disabled')
+      await terminateAndWait(childProcess)
+      expect(output.getStdout()).to.include('Proxy disabled')
+    }).timeout(5000)
+
+    it('should fail with invalid --proxy URL', async () => {
+      // Need a running server so port validation passes before proxy validation
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200)
+        res.end('ok')
+      })
+      await new Promise<void>((resolve) => server.listen(0, resolve))
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+
+      const childProcess = spawnCli([
+        '--port', String(port),
+        '--proxy', 'not-a-url',
+        '--timeout', '1000',
+      ])
+      const output = collectOutput(childProcess)
+      const { code } = await waitForClose(childProcess)
+
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+
+      expect(code).to.not.equal(0)
+      expect(output.getStderr()).to.include('Invalid proxy URL')
+    }).timeout(5000)
+
+    it('should redact credentials in proxy URL output', async () => {
+      const childProcess = spawnCli([
+        '--port', '99999',
+        '--proxy', 'http://user:secret@proxy.example.com:8080',
+        '--timeout', '1000',
+      ])
+      const output = collectOutput(childProcess)
+      await waitForStdoutContains(childProcess, 'Using proxy')
+      await terminateAndWait(childProcess)
+      expect(output.getStdout()).to.include('Using proxy')
+      expect(output.getStdout()).to.not.include('secret')
+    }).timeout(5000)
+  })
+
   describe('argument parsing edge cases', () => {
     it('should handle numeric arguments correctly', async () => {
       const process = spawnCli([
