@@ -1,3 +1,14 @@
+## [1.2.0](https://github.com/kiva-corp/localrun/compare/v1.1.3...v1.2.0) (2026-04-16)
+
+### Features
+
+* support proxy ([1b2eb48](https://github.com/kiva-corp/localrun/commit/1b2eb48e891a4943602be563bfcc4950f67d00e9))
+* support proxy ([#29](https://github.com/kiva-corp/localrun/issues/29)) ([822ecf9](https://github.com/kiva-corp/localrun/commit/822ecf9053f1a03e38caf2f51607693eac7d947a))
+
+### Bug Fixes
+
+* cli otpion & error handling ([be80c54](https://github.com/kiva-corp/localrun/commit/be80c541201872213a9c722b8be3ad146cc24cec))
+
 ## [1.1.3](https://github.com/kiva-corp/localrun/compare/v1.1.2...v1.1.3) (2026-03-24)
 
 ### Bug Fixes
