@@ -97,18 +97,24 @@ const args = yargs(hideBin(process.argv))
   })
   .option('proxy', {
     describe:
-      'Proxy server URL (e.g. https://proxy:8080). Auto-detects from HTTPS_PROXY/HTTP_PROXY env vars if not specified.',
+      'Proxy server URL (e.g. http://proxy:8080). Auto-detects from HTTPS_PROXY/HTTP_PROXY env vars if not specified. Use --no-proxy to disable.',
     type: 'string',
-  })
-  .option('no-proxy', {
-    describe: 'Disable proxy even if HTTPS_PROXY/HTTP_PROXY env vars are set',
-    type: 'boolean',
   })
   .help('help', 'Show this help and exit')
   .version(version)
 
 function formatTimestamp(): string {
   return new Date().toISOString().replace('T', ' ').substring(0, 19)
+}
+
+function redactProxyUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.password) parsed.password = '***'
+    return parsed.toString()
+  } catch {
+    return url
+  }
 }
 
 function formatRequestLog(info: { method: string; path: string; headers?: Record<string, string> }): string {
@@ -157,10 +163,14 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
   }
 
   try {
-    if (argv['no-proxy']) {
+    const rawProxy = argv.proxy as string | boolean | undefined
+    const proxyDisabled = rawProxy === false
+    const proxyUrl = typeof rawProxy === 'string' ? rawProxy : undefined
+
+    if (proxyDisabled) {
       console.log('Proxy disabled')
-    } else if (argv.proxy) {
-      console.log(`Using proxy: ${argv.proxy}`)
+    } else if (proxyUrl) {
+      console.log(`Using proxy: ${redactProxyUrl(proxyUrl)}`)
     }
 
     const tunnel = await localrun(argv.port as number, {
@@ -176,8 +186,8 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
       maxRetries: argv['max-retries'] as number,
       maxReconnectAttempts: argv['max-reconnect-attempts'] as number,
       sseTimeout: argv['sse-timeout'] as number,
-      proxy: argv.proxy as string | undefined,
-      noProxy: argv['no-proxy'] as boolean | undefined,
+      proxy: proxyUrl,
+      noProxy: proxyDisabled || undefined,
     })
 
     tunnel.on('url', (url: string) => {
@@ -206,7 +216,7 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
 
     tunnel.on('url', () => {
       const connectionTime = Date.now() - connectionStartTime
-      console.log(`⏱️ Connection established in ${connectionTime}ms`)
+      console.log(`⏱ Connection established in ${connectionTime}ms`)
     })
 
     tunnel.on('close', () => {

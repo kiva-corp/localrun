@@ -151,15 +151,23 @@ export class Tunnel extends EventEmitter {
   }
 
   private resolveProxy(): void {
-    this.proxyAgent?.destroy()
+    try {
+      this.proxyAgent?.destroy()
+    } catch (error) {
+      log('Error destroying previous proxy agent:', error)
+    }
     this.proxyAgent = null
 
+    const explicit = this.options.proxy?.trim() || undefined
+
     if (this.options.noProxy) {
+      if (explicit) {
+        log('Warning: both proxy and noProxy are set; noProxy takes precedence')
+      }
       log('Proxy explicitly disabled')
       return
     }
 
-    const explicit = this.options.proxy
     const proxyUrl = explicit ?? getProxyForUrl(this.options.host ?? '')
     if (!proxyUrl) {
       log('No proxy configured')
@@ -170,12 +178,18 @@ export class Tunnel extends EventEmitter {
       if (explicit) {
         throw new Error(`Invalid proxy URL: ${proxyUrl}`)
       }
+      console.error(`Warning: Invalid proxy URL from environment variable, ignoring: ${proxyUrl}`)
       log('Invalid proxy URL from environment, skipping: %s', proxyUrl)
       return
     }
 
     log('Using proxy: %s', proxyUrl)
-    this.proxyAgent = new HttpsProxyAgent(proxyUrl)
+    try {
+      this.proxyAgent = new HttpsProxyAgent(proxyUrl)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to create proxy agent for ${proxyUrl}: ${message}`)
+    }
   }
 
   private async initTunnel(): Promise<TunnelInfo> {
@@ -187,7 +201,8 @@ export class Tunnel extends EventEmitter {
       const axiosConfig: AxiosRequestConfig = {
         responseType: 'json',
         timeout: 10000,
-        ...(this.proxyAgent && { httpsAgent: this.proxyAgent, proxy: false as const }),
+        // proxyAgent がある場合は、そちらを優先して使う
+        ...(this.proxyAgent && { httpsAgent: this.proxyAgent, proxy: false }),
       }
 
       let response: AxiosResponse<{
@@ -228,7 +243,8 @@ export class Tunnel extends EventEmitter {
     } catch (error) {
       log('tunnel server error:', error)
       if (axios.isAxiosError(error)) {
-        throw new Error(`Failed to connect to tunnel server: ${error.message}`)
+        const proxyInfo = this.proxyAgent ? ' (via proxy)' : ''
+        throw new Error(`Failed to connect to tunnel server${proxyInfo}: ${error.message}`)
       }
       throw error
     }
@@ -1154,7 +1170,11 @@ export class Tunnel extends EventEmitter {
     }
 
     if (this.proxyAgent) {
-      this.proxyAgent.destroy()
+      try {
+        this.proxyAgent.destroy()
+      } catch (error) {
+        log('Error destroying proxy agent:', error)
+      }
       this.proxyAgent = null
     }
 
