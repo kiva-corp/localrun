@@ -95,11 +95,26 @@ const args = yargs(hideBin(process.argv))
     describe: 'Print basic request info',
     type: 'boolean',
   })
+  .option('proxy', {
+    describe:
+      'Proxy server URL (e.g. http://proxy:8080). Auto-detects from HTTPS_PROXY/HTTP_PROXY env vars if not specified. Use --no-proxy to disable.',
+    type: 'string',
+  })
   .help('help', 'Show this help and exit')
   .version(version)
 
 function formatTimestamp(): string {
   return new Date().toISOString().replace('T', ' ').substring(0, 19)
+}
+
+function redactProxyUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.password) parsed.password = '***'
+    return parsed.toString()
+  } catch {
+    return url
+  }
 }
 
 function formatRequestLog(info: { method: string; path: string; headers?: Record<string, string> }): string {
@@ -148,6 +163,16 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
   }
 
   try {
+    const rawProxy = argv.proxy as string | boolean | undefined
+    const proxyDisabled = rawProxy === false
+    const proxyUrl = typeof rawProxy === 'string' ? rawProxy : undefined
+
+    if (proxyDisabled) {
+      console.log('Proxy disabled')
+    } else if (proxyUrl) {
+      console.log(`Using proxy: ${redactProxyUrl(proxyUrl)}`)
+    }
+
     const tunnel = await localrun(argv.port as number, {
       host: argv.host as string,
       subdomain: argv.subdomain as string,
@@ -161,6 +186,8 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
       maxRetries: argv['max-retries'] as number,
       maxReconnectAttempts: argv['max-reconnect-attempts'] as number,
       sseTimeout: argv['sse-timeout'] as number,
+      proxy: proxyUrl,
+      noProxy: proxyDisabled || undefined,
     })
 
     tunnel.on('url', (url: string) => {
@@ -189,7 +216,7 @@ function formatRequestLog(info: { method: string; path: string; headers?: Record
 
     tunnel.on('url', () => {
       const connectionTime = Date.now() - connectionStartTime
-      console.log(`⏱️ Connection established in ${connectionTime}ms`)
+      console.log(`⏱ Connection established in ${connectionTime}ms`)
     })
 
     tunnel.on('close', () => {

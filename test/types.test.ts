@@ -36,6 +36,8 @@ describe('Types', () => {
         allowInvalidCert: true,
         timeout: 30000,
         maxRetries: 5,
+        proxy: 'http://proxy:8080',
+        noProxy: false,
       }
 
       expect(options.port).to.equal(3000)
@@ -49,6 +51,8 @@ describe('Types', () => {
       expect(options.allowInvalidCert).to.be.true
       expect(options.timeout).to.equal(30000)
       expect(options.maxRetries).to.equal(5)
+      expect(options.proxy).to.equal('http://proxy:8080')
+      expect(options.noProxy).to.be.false
     })
   })
 
